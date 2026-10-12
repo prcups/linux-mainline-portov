@@ -68,6 +68,7 @@ properties:
           - qcom,sm6125-dwc3
           - qcom,sm6350-dwc3
           - qcom,sm6375-dwc3
+          - qcom,sm7435-dwc3
           - qcom,sm8150-dwc3
           - qcom,sm8250-dwc3
           - qcom,sm8350-dwc3
@@ -225,6 +226,7 @@ allOf:
               - qcom,sdx75-dwc3
               - qcom,shikra-dwc3
               - qcom,sm6350-dwc3
+              - qcom,sm7435-dwc3
               - qcom,sm8750-dwc3
     then:
       properties:
@@ -526,6 +528,7 @@ allOf:
             enum:
               - qcom,glymur-dwc3
               - qcom,milos-dwc3
+              - qcom,sm7435-dwc3
               - qcom,x1e80100-dwc3
     then:
       properties:
