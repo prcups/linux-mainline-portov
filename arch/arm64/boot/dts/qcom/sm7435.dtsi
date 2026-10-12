@@ -1,0 +1,279 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Copyright (c) 2026 portov mainline contributors
+ */
+
+#include <dt-bindings/interrupt-controller/arm-gic.h>
+
+/ {
+	compatible = "qcom,sm7435";
+	interrupt-parent = <&intc>;
+
+	#address-cells = <2>;
+	#size-cells = <2>;
+
+	chosen { };
+
+	clocks {
+		uart3_boot_clk: uart3-boot-clk {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <7372800>;
+			clock-output-names = "qup0-se3-boot";
+		};
+	};
+
+	cpus {
+		#address-cells = <2>;
+		#size-cells = <0>;
+
+		cpu0: cpu@0 {
+			compatible = "arm,cortex-a55";
+			device_type = "cpu";
+			enable-method = "psci";
+			reg = <0x0 0x0>;
+		};
+
+		cpu1: cpu@100 {
+			compatible = "arm,cortex-a55";
+			device_type = "cpu";
+			enable-method = "psci";
+			reg = <0x0 0x100>;
+		};
+
+		cpu2: cpu@200 {
+			compatible = "arm,cortex-a55";
+			device_type = "cpu";
+			enable-method = "psci";
+			reg = <0x0 0x200>;
+		};
+
+		cpu3: cpu@300 {
+			compatible = "arm,cortex-a55";
+			device_type = "cpu";
+			enable-method = "psci";
+			reg = <0x0 0x300>;
+		};
+
+		cpu4: cpu@400 {
+			compatible = "arm,cortex-a78";
+			device_type = "cpu";
+			enable-method = "psci";
+			reg = <0x0 0x400>;
+		};
+
+		cpu5: cpu@500 {
+			compatible = "arm,cortex-a78";
+			device_type = "cpu";
+			enable-method = "psci";
+			reg = <0x0 0x500>;
+		};
+
+		cpu6: cpu@600 {
+			compatible = "arm,cortex-a78";
+			device_type = "cpu";
+			enable-method = "psci";
+			reg = <0x0 0x600>;
+		};
+
+		cpu7: cpu@700 {
+			compatible = "arm,cortex-a78";
+			device_type = "cpu";
+			enable-method = "psci";
+			reg = <0x0 0x700>;
+		};
+	};
+
+	memory@a0000000 {
+		device_type = "memory";
+		reg = <0x0 0xa0000000 0x0 0x0>;
+	};
+
+	psci {
+		compatible = "arm,psci-1.0";
+		method = "smc";
+	};
+
+	timer {
+		compatible = "arm,armv8-timer";
+		interrupts = <GIC_PPI 13 (GIC_CPU_MASK_SIMPLE(8) | IRQ_TYPE_LEVEL_LOW)>,
+			     <GIC_PPI 14 (GIC_CPU_MASK_SIMPLE(8) | IRQ_TYPE_LEVEL_LOW)>,
+			     <GIC_PPI 11 (GIC_CPU_MASK_SIMPLE(8) | IRQ_TYPE_LEVEL_LOW)>,
+			     <GIC_PPI 12 (GIC_CPU_MASK_SIMPLE(8) | IRQ_TYPE_LEVEL_LOW)>;
+		clock-frequency = <19200000>;
+	};
+
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		memory@80000000 {
+			reg = <0x0 0x80000000 0x0 0x600000>;
+			no-map;
+		};
+
+		memory@80600000 {
+			reg = <0x0 0x80600000 0x0 0x40000>;
+			no-map;
+		};
+
+		memory@80640000 {
+			reg = <0x0 0x80640000 0x0 0x1c0000>;
+			no-map;
+		};
+
+		memory@80800000 {
+			reg = <0x0 0x80800000 0x0 0x60000>;
+			no-map;
+		};
+
+		aop_cmd_db_mem: memory@80860000 {
+			compatible = "qcom,cmd-db";
+			reg = <0x0 0x80860000 0x0 0x20000>;
+			no-map;
+		};
+
+		memory@80880000 {
+			reg = <0x0 0x80880000 0x0 0x20000>;
+			no-map;
+		};
+
+		memory@808a0000 {
+			reg = <0x0 0x808a0000 0x0 0x40000>;
+			no-map;
+		};
+
+		memory@808e0000 {
+			reg = <0x0 0x808e0000 0x0 0x4000>;
+			no-map;
+		};
+
+		memory@808e4000 {
+			reg = <0x0 0x808e4000 0x0 0x10000>;
+			no-map;
+		};
+
+		memory@80900000 {
+			reg = <0x0 0x80900000 0x0 0x200000>;
+			no-map;
+		};
+
+		memory@80b00000 {
+			reg = <0x0 0x80b00000 0x0 0x100000>;
+			no-map;
+		};
+
+		memory@80c00000 {
+			reg = <0x0 0x80c00000 0x0 0x1000>;
+			no-map;
+		};
+
+		memory@82a00000 {
+			reg = <0x0 0x82a00000 0x0 0xc00000>;
+			no-map;
+		};
+
+		memory@84b00000 {
+			reg = <0x0 0x84b00000 0x0 0x800000>;
+			no-map;
+		};
+
+		memory@85300000 {
+			reg = <0x0 0x85300000 0x0 0x1900000>;
+			no-map;
+		};
+
+		memory@86c00000 {
+			reg = <0x0 0x86c00000 0x0 0x700000>;
+			no-map;
+		};
+
+		memory@87300000 {
+			reg = <0x0 0x87300000 0x0 0x2100000>;
+			no-map;
+		};
+
+		memory@89400000 {
+			reg = <0x0 0x89400000 0x0 0xa00000>;
+			no-map;
+		};
+
+		memory@89e00000 {
+			reg = <0x0 0x89e00000 0x0 0x10000>;
+			no-map;
+		};
+
+		memory@89e10000 {
+			reg = <0x0 0x89e10000 0x0 0xa000>;
+			no-map;
+		};
+
+		memory@89e1a000 {
+			reg = <0x0 0x89e1a000 0x0 0x2000>;
+			no-map;
+		};
+
+		memory@8bc00000 {
+			reg = <0x0 0x8bc00000 0x0 0xe600000>;
+			no-map;
+		};
+
+		memory@a6e00000 {
+			reg = <0x0 0xa6e00000 0x0 0x40000>;
+			no-map;
+		};
+
+		memory@a6f00000 {
+			reg = <0x0 0xa6f00000 0x0 0x100000>;
+			no-map;
+		};
+
+		memory@e0600000 {
+			reg = <0x0 0xe0600000 0x0 0x400000>;
+			no-map;
+		};
+
+		memory@e8800000 {
+			reg = <0x0 0xe8800000 0x0 0x100000>;
+			no-map;
+		};
+
+		memory@e8900000 {
+			reg = <0x0 0xe8900000 0x0 0x680000>;
+			no-map;
+		};
+
+		memory@e8f80000 {
+			reg = <0x0 0xe8f80000 0x0 0x500000>;
+			no-map;
+		};
+	};
+
+	soc@0 {
+		compatible = "simple-bus";
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		intc: interrupt-controller@17200000 {
+			compatible = "arm,gic-v3";
+			#interrupt-cells = <3>;
+			#redistributor-regions = <1>;
+			interrupt-controller;
+			redistributor-stride = <0x0 0x20000>;
+			reg = <0x0 0x17200000 0x0 0x10000>,
+			      <0x0 0x17260000 0x0 0x100000>;
+			interrupts = <GIC_PPI 9 IRQ_TYPE_LEVEL_LOW>;
+		};
+
+		uart3: serial@98c000 {
+			compatible = "qcom,geni-debug-uart";
+			reg = <0x0 0x0098c000 0x0 0x4000>;
+			clocks = <&uart3_boot_clk>;
+			clock-names = "se";
+			interrupts = <GIC_SPI 604 IRQ_TYPE_LEVEL_HIGH>;
+			status = "disabled";
+		};
+	};
+};
