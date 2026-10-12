@@ -21,6 +21,36 @@
 			clock-frequency = <7372800>;
 			clock-output-names = "qup0-se3-boot";
 		};
+
+		usb_cfg_noc_boot_clk: usb-cfg-noc-boot-clk {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <100000000>;
+		};
+
+		usb_core_boot_clk: usb-core-boot-clk {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <133333333>;
+		};
+
+		usb_iface_boot_clk: usb-iface-boot-clk {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <100000000>;
+		};
+
+		usb_sleep_boot_clk: usb-sleep-boot-clk {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <32000>;
+		};
+
+		usb_mock_utmi_boot_clk: usb-mock-utmi-boot-clk {
+			compatible = "fixed-clock";
+			#clock-cells = <0>;
+			clock-frequency = <19200000>;
+		};
 	};
 
 	cpus {
@@ -285,6 +315,45 @@
 			#interrupt-cells = <2>;
 			interrupt-parent = <&intc>;
 			interrupt-controller;
+		};
+
+		usb_1: usb@a600000 {
+			compatible = "qcom,sm7435-dwc3", "qcom,snps-dwc3";
+			reg = <0x0 0x0a600000 0x0 0xfc100>;
+
+			clocks = <&usb_cfg_noc_boot_clk>,
+				 <&usb_core_boot_clk>,
+				 <&usb_iface_boot_clk>,
+				 <&usb_sleep_boot_clk>,
+				 <&usb_mock_utmi_boot_clk>;
+			clock-names = "cfg_noc", "core", "iface", "sleep",
+				      "mock_utmi";
+
+			interrupts-extended = <&intc GIC_SPI 133 IRQ_TYPE_LEVEL_HIGH>,
+					      <&intc GIC_SPI 130 IRQ_TYPE_LEVEL_HIGH>,
+					      <&pdc 14 IRQ_TYPE_EDGE_RISING>,
+					      <&pdc 15 IRQ_TYPE_EDGE_RISING>,
+					      <&pdc 17 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-names = "dwc_usb3", "pwr_event", "dp_hs_phy_irq",
+					  "dm_hs_phy_irq", "ss_phy_irq";
+
+			/*
+			 * No dma-coherent: it only holds when this DWC3 runs
+			 * behind the APPS SMMU, which is how downstream uses
+			 * it.  Without an SM7435 SMMU driver the controller
+			 * does plain non-coherent DMA, and claiming coherence
+			 * makes the driver read stale zeroes out of its event
+			 * ring.
+			 */
+			qcom,select-utmi-as-pipe-clk;
+			snps,dis_u2_susphy_quirk;
+			snps,dis_enblslpm_quirk;
+			snps,dis-u1-entry-quirk;
+			snps,dis-u2-entry-quirk;
+			dr_mode = "peripheral";
+			maximum-speed = "high-speed";
+
+			status = "disabled";
 		};
 	};
 };
