@@ -16,8 +16,7 @@
 	};
 
 	chosen {
-		stdout-path = "serial0:115200n8";
-		bootargs = "earlycon keep_bootcon console=ttyMSM0,115200n8 ignore_loglevel";
+		bootargs = "console=ttyGS0,115200n8 ignore_loglevel printk.time=1";
 	};
 };
 
@@ -32,5 +31,9 @@
 };
 
 &uart3 {
+	status = "okay";
+};
+
+&usb_1 {
 	status = "okay";
 };
