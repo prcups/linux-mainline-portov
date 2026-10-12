@@ -1091,6 +1091,11 @@ properties:
 
       - items:
           - enum:
+              - motorola,portov
+          - const: qcom,sm7435
+
+      - items:
+          - enum:
               - microsoft,surface-duo
               - qcom,sm8150-hdk
               - qcom,sm8150-mtp
