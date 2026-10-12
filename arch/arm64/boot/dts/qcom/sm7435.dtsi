@@ -114,11 +114,6 @@
 		};
 	};
 
-	memory@a0000000 {
-		device_type = "memory";
-		reg = <0x0 0xa0000000 0x0 0x0>;
-	};
-
 	psci {
 		compatible = "arm,psci-1.0";
 		method = "smc";
