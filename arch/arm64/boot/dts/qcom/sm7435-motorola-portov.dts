@@ -1,0 +1,26 @@
+// SPDX-License-Identifier: BSD-3-Clause
+/*
+ * Copyright (c) 2026 portov mainline contributors
+ */
+
+/dts-v1/;
+
+#include "sm7435.dtsi"
+
+/ {
+	model = "Motorola moto g67 power 5G";
+	compatible = "motorola,portov", "qcom,sm7435";
+
+	aliases {
+		serial0 = &uart3;
+	};
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+		bootargs = "earlycon keep_bootcon console=ttyMSM0,115200n8 ignore_loglevel";
+	};
+};
+
+&uart3 {
+	status = "okay";
+};
