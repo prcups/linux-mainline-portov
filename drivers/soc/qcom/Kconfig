@@ -327,3 +327,14 @@ config QCOM_UBWC_CONFIG
 	  (UBWC) engines across various IP blocks, which need to be initialized
 	  with coherent configuration data. This module functions as a single
 	  source of truth for that information.
+
+config PORTOV_USB_POWER_BRIDGE
+	bool "portov diagnostic USB power bridge"
+	depends on OF
+	help
+	  Diagnostic-only bridge that powers the SM7435 (parrot) USB controller
+	  from the mainline kernel, using register offsets taken from the
+	  downstream gcc-parrot.c, so the DWC3 core and the USB2 HS PHY can be
+	  exercised before a real mainline GCC driver exists.  It enables the
+	  USB3 GDSC, the USB clock branches and roots and deasserts the USB and
+	  QUSB2PHY block resets.  Not intended for upstream.
