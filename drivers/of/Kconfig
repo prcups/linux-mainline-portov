@@ -18,6 +18,23 @@ menuconfig OF
 
 if OF
 
+config PORTOV_EMBEDDED_DTB_CONTROL
+	bool "Use a device tree linked into the image on portov diagnostics"
+	depends on OF_FLATTREE
+	help
+	  Diagnostic only, not intended for upstream.  When set, arm64
+	  setup_arch() takes its device tree from the blob linked into the
+	  image (drivers/of/portov-control.dtb, supplied by the bring-up build)
+	  instead of the one the bootloader passed in.  The portov bring-up
+	  images need this because the bootloader only accepts an Android boot
+	  image carrying the downstream firmware device tree, while the
+	  payload has to hand Linux a merged, corrected tree.
+
+	  With this option off, arch/arm64/kernel/setup.c uses the bootloader's
+	  device tree exactly as usual and nothing in this file is built, so
+	  the kernel can be built from a clean checkout without the bring-up
+	  payload around it.
+
 config OF_UNITTEST
 	bool "Device Tree runtime unit tests"
 	depends on OF_EARLY_FLATTREE

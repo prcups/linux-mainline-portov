@@ -58,6 +58,10 @@
 static int num_standard_resources;
 static struct resource *standard_resources;
 
+#ifdef CONFIG_PORTOV_EMBEDDED_DTB_CONTROL
+extern u8 __dtb_portov_control_begin[];
+#endif
+
 phys_addr_t __fdt_pointer __initdata;
 u64 mmu_enabled_at_boot __initdata;
 
@@ -289,7 +293,16 @@ void __init __no_sanitize_address setup_arch(char **cmdline_p)
 	early_fixmap_init();
 	early_ioremap_init();
 
+#ifdef CONFIG_PORTOV_EMBEDDED_DTB_CONTROL
+	/*
+	 * portov diagnostic only: ABL has already entered the proven header-v4
+	 * Image.  Replace its downstream FDT with the byte-exact payload linked
+	 * into this Image before Linux scans any device-tree content.
+	 */
+	setup_machine_fdt(__pa_symbol(__dtb_portov_control_begin));
+#else
 	setup_machine_fdt(__fdt_pointer);
+#endif
 
 	/*
 	 * Initialise the static keys early as they may be enabled by the
