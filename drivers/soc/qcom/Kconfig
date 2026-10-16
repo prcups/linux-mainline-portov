@@ -15,6 +15,16 @@ menuconfig QCOM_SOC
 
 if QCOM_SOC
 
+config PORTOV_DIAG_CONSOLE
+	bool "portov diagnostic on-screen console"
+	depends on OF
+	help
+	  Diagnostic-only text console for the Motorola portov mainline
+	  bring-up.  It draws printk output directly into the continuous-splash
+	  framebuffer with the built-in VGA 8x16 font, so the phone screen
+	  becomes the kernel console without depending on simplefb or fbcon.
+	  Not intended for upstream.
+
 config QCOM_AOSS_QMP
 	tristate "Qualcomm AOSS Driver"
 	depends on MAILBOX
