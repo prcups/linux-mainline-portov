@@ -440,6 +440,15 @@ config RESET_ZYNQMP
 	help
 	  This enables the reset controller driver for Xilinx ZynqMP SoCs.
 
+config PORTOV_DIAG_RESET
+	bool "portov diagnostic no-op reset controller"
+	depends on OF
+	help
+	  Diagnostic-only no-op reset controller used by the Motorola portov
+	  (SM7435) mainline bring-up images.  It lets the mainline USB2 HS PHY
+	  driver bind while SM7435 has no real GCC/reset binding.  It performs
+	  no register access.  Say N for anything but bring-up work.
+
 source "drivers/reset/amlogic/Kconfig"
 source "drivers/reset/hisilicon/Kconfig"
 source "drivers/reset/spacemit/Kconfig"
