@@ -360,6 +360,21 @@
 			interrupt-controller;
 		};
 
+		usb_hsphy: phy@88e3000 {
+			compatible = "qcom,sm8150-usb-hs-phy", "qcom,usb-snps-hs-7nm-phy";
+			reg = <0x0 0x088e3000 0x0 0x11c>;
+			#phy-cells = <0>;
+
+			clocks = <&gcc GCC_EUSB3_0_CLKREF_EN>;
+			clock-names = "ref";
+			resets = <&gcc GCC_QUSB2PHY_PRIM_BCR>;
+
+			vdda-pll-supply = <&usb_hs_core>;
+			vdda18-supply = <&usb_hs_1v8>;
+			vdda33-supply = <&usb_hs_3v3>;
+			status = "okay";
+		};
+
 		usb_1: usb@a600000 {
 			compatible = "qcom,sm7435-dwc3", "qcom,snps-dwc3";
 			reg = <0x0 0x0a600000 0x0 0xfc100>;
@@ -382,6 +397,8 @@
 			assigned-clock-rates = <19200000>, <133333333>;
 			resets = <&gcc GCC_USB30_PRIM_BCR>;
 			power-domains = <&gcc GCC_USB30_PRIM_GDSC>;
+			phys = <&usb_hsphy>;
+			phy-names = "usb2-phy";
 
 			interrupts-extended = <&intc GIC_SPI 133 IRQ_TYPE_LEVEL_HIGH>,
 					      <&intc GIC_SPI 130 IRQ_TYPE_LEVEL_HIGH>,
