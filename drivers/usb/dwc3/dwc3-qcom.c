@@ -369,6 +369,8 @@ static int dwc3_qcom_suspend(struct dwc3_qcom *qcom, bool wakeup)
 	return 0;
 }
 
+static void dwc3_qcom_trace_clks(struct dwc3_qcom *qcom);
+
 static int dwc3_qcom_resume(struct dwc3_qcom *qcom, bool wakeup)
 {
 	int ret;
@@ -381,8 +383,11 @@ static int dwc3_qcom_resume(struct dwc3_qcom *qcom, bool wakeup)
 		dwc3_qcom_disable_interrupts(qcom);
 
 	ret = clk_bulk_prepare_enable(qcom->num_clocks, qcom->clks);
-	if (ret < 0)
+	if (ret < 0) {
+		pr_err("portov-usb-clk: bulk enable failed: %d\n", ret);
 		return ret;
+	}
+	dwc3_qcom_trace_clks(qcom);
 
 	ret = dwc3_qcom_interconnect_enable(qcom);
 	if (ret)
@@ -607,6 +612,17 @@ static struct dwc3_glue_ops dwc3_qcom_glue_ops = {
 	.pre_run_stop	= dwc3_qcom_run_stop_notifier,
 };
 
+static void dwc3_qcom_trace_clks(struct dwc3_qcom *qcom)
+{
+	int i;
+
+	pr_emerg("portov-usb-clk: bulk enable ok (%d clocks)\n",
+		 qcom->num_clocks);
+	for (i = 0; i < qcom->num_clocks; i++)
+		pr_emerg("portov-usb-clk: %s rate=%lu\n", qcom->clks[i].id,
+			 clk_get_rate(qcom->clks[i].clk));
+}
+
 static int dwc3_qcom_probe(struct platform_device *pdev)
 {
 	struct dwc3_probe_data	probe_data = {};
@@ -650,8 +666,11 @@ static int dwc3_qcom_probe(struct platform_device *pdev)
 	}
 
 	ret = clk_bulk_prepare_enable(qcom->num_clocks, qcom->clks);
-	if (ret < 0)
+	if (ret < 0) {
+		pr_err("portov-usb-clk: bulk enable failed: %d\n", ret);
 		return ret;
+	}
+	dwc3_qcom_trace_clks(qcom);
 
 	r = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	if (!r) {
