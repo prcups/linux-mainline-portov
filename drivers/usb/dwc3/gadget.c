@@ -18,6 +18,8 @@
 #include <linux/io.h>
 #include <linux/list.h>
 #include <linux/dma-mapping.h>
+#include <linux/workqueue.h>
+#include <linux/timekeeping.h>
 
 #include <linux/usb/ch9.h>
 #include <linux/usb/gadget.h>
@@ -2650,6 +2652,18 @@ static int dwc3_gadget_run_stop(struct dwc3 *dwc, int is_on)
 	u32			timeout = 2000;
 	u32			saved_config = 0;
 
+	/*
+	 * portov diagnostic only, not for upstream.  Clearing Run/Stop is what
+	 * leaves this device enumerated but unable to move a single byte, and
+	 * there are exactly three callers: dwc3_gadget_pullup(0),
+	 * dwc3_gadget_stop() (UDC unbind) and dwc3_gadget_suspend() (bus
+	 * suspend).  The stack names the one that fired.
+	 */
+	if (!is_on) {
+		pr_emerg("portov-usb run-stop-off, call trace:\n");
+		dump_stack();
+	}
+
 	if (pm_runtime_suspended(dwc->dev))
 		return 0;
 
@@ -2798,6 +2812,175 @@ static int dwc3_gadget_soft_disconnect(struct dwc3 *dwc)
 	return ret;
 }
 
+/*
+ * portov diagnostic only, not for upstream.
+ *
+ * On this device a handoff boot can end up with a gadget that reports
+ * USB_STATE_CONFIGURED at high speed while the bulk endpoints never move a
+ * byte.  Twenty seconds after the gadget starts, print the state that
+ * separates the remaining explanations: the device registers, the endpoint
+ * enable mask, the per-endpoint driver state (the DWC3_EP_ENABLED bit and the
+ * TRB ring address), the event ring the driver allocated against the address
+ * the controller was given, and finally the APPS SMMU's global state.
+ *
+ * The event ring is read through the driver's own mapping.  An earlier
+ * attempt to compare it with a MEMREMAP_WC alias of the same physical address
+ * was wrong twice over: virt_to_phys() is meaningless for the remapped
+ * coherent buffer, and memremap() is not for System RAM at all (it warns in
+ * memremap() and returns without mapping).
+ */
+#define PORTOV_APPS_SMMU_BASE	0x15000000
+#define PORTOV_SMMU_sCR0	0x000
+#define PORTOV_SMMU_sGFSR	0x048
+#define PORTOV_SMMU_sGFSYNR0	0x050
+#define PORTOV_SMMU_sGFSYNR1	0x054
+#define PORTOV_SMMU_sGFSYNR2	0x058
+
+static struct dwc3 *portov_state_dwc;
+static struct delayed_work portov_state_work;
+static struct delayed_work portov_watch_work;
+static unsigned int portov_watch_count;
+
+/*
+ * portov diagnostic only, not for upstream.  The DWC3 registers can all look
+ * right while the link misbehaves, so print the GCC side that feeds the
+ * controller and its PHY: the USB3 power domain, every USB branch (bit 31 is
+ * halt, bit 0 is enable), the USB3 reference-clock branch and the QUSB2PHY
+ * block reset.  Offsets are the ones documented in portov-usb-power.c.
+ */
+#define PORTOV_GCC_BASE			0x00100000
+#define PORTOV_GCC_GDSCR		0x049004
+#define PORTOV_GCC_USB30_BCR		0x049000
+#define PORTOV_GCC_MASTER_CBCR		0x049018
+#define PORTOV_GCC_SLEEP_CBCR		0x049020
+#define PORTOV_GCC_UTMI_CBCR		0x049024
+#define PORTOV_GCC_PHY_AUX_CBCR		0x04905c
+#define PORTOV_GCC_PHY_CAUX_CBCR	0x049060
+#define PORTOV_GCC_CFG_AXI_CBCR		0x049084
+#define PORTOV_GCC_AGGR_AXI_CBCR	0x049088
+#define PORTOV_GCC_CLKREF_CBCR		0x09c010
+#define PORTOV_GCC_QUSB2_BCR		0x022000
+
+static void portov_probe_gcc_state(void)
+{
+	void __iomem *gcc;
+
+	gcc = ioremap(PORTOV_GCC_BASE, 0x1f4200);
+	if (!gcc) {
+		pr_emerg("portov-usb gcc map failed\n");
+		return;
+	}
+
+	pr_emerg("portov-usb gcc gdscr=%08x usb30bcr=%08x qusb2bcr=%08x clkref=%08x\n",
+		 readl(gcc + PORTOV_GCC_GDSCR),
+		 readl(gcc + PORTOV_GCC_USB30_BCR),
+		 readl(gcc + PORTOV_GCC_QUSB2_BCR),
+		 readl(gcc + PORTOV_GCC_CLKREF_CBCR));
+	pr_emerg("portov-usb gcc mst=%08x slp=%08x utmi=%08x aux=%08x caux=%08x cfgnoc=%08x aggr=%08x\n",
+		 readl(gcc + PORTOV_GCC_MASTER_CBCR),
+		 readl(gcc + PORTOV_GCC_SLEEP_CBCR),
+		 readl(gcc + PORTOV_GCC_UTMI_CBCR),
+		 readl(gcc + PORTOV_GCC_PHY_AUX_CBCR),
+		 readl(gcc + PORTOV_GCC_PHY_CAUX_CBCR),
+		 readl(gcc + PORTOV_GCC_CFG_AXI_CBCR),
+		 readl(gcc + PORTOV_GCC_AGGR_AXI_CBCR));
+
+	iounmap(gcc);
+}
+
+static void portov_probe_state(struct work_struct *work)
+{
+	struct dwc3 *dwc = portov_state_dwc;
+	struct dwc3_event_buffer *evt;
+	void __iomem *smmu;
+	u32 scR0 = 0, sGFSR = 0, synr0 = 0, synr1 = 0, synr2 = 0;
+	int i;
+
+	if (!dwc)
+		return;
+
+	evt = dwc->ev_buf;
+
+	if (!dwc->gadget) {
+		pr_emerg("portov-usb state gadget=<none>\n");
+		return;
+	}
+
+	pr_emerg("portov-usb state gadget=%s state=%d speed=%d\n",
+		 dwc->gadget->name, dwc->gadget->state, dwc->gadget->speed);
+	pr_emerg("portov-usb state dcfg=%08x dctl=%08x dsts=%08x dalepena=%08x\n",
+		 dwc3_readl(dwc, DWC3_DCFG),
+		 dwc3_readl(dwc, DWC3_DCTL),
+		 dwc3_readl(dwc, DWC3_DSTS),
+		 dwc3_readl(dwc, DWC3_DALEPENA));
+	pr_emerg("portov-usb state gsbuscfg0=%08x gsbuscfg1=%08x\n",
+		 dwc3_readl(dwc, DWC3_GSBUSCFG0),
+		 dwc3_readl(dwc, DWC3_GSBUSCFG1));
+	pr_emerg("portov-usb state gevntcount=%u gevntadr=%08x%08x\n",
+		 dwc3_readl(dwc, DWC3_GEVNTCOUNT(0)) & DWC3_GEVNTCOUNT_MASK,
+		 dwc3_readl(dwc, DWC3_GEVNTADRHI(0)),
+		 dwc3_readl(dwc, DWC3_GEVNTADRLO(0)));
+
+	if (evt && evt->buf) {
+		u32 *ring = evt->buf;
+
+		pr_emerg("portov-usb state evb dma=%pad len=%u lpos=%u count=%u\n",
+			 &evt->dma, evt->length, evt->lpos, evt->count);
+		pr_emerg("portov-usb state evb ring=%08x %08x %08x %08x\n",
+			 ring[0], ring[1], ring[2], ring[3]);
+	}
+
+	for (i = 1; i < 4; i++) {
+		struct dwc3_ep *ep = dwc->eps[i];
+
+		if (!ep)
+			continue;
+		pr_emerg("portov-usb state %s addr=%02x maxpacket=%u res=%u flags=%08x enabled=%u trb_dma=%pad\n",
+			 ep->endpoint.name, ep->endpoint.address,
+			 ep->endpoint.maxpacket, ep->resource_index, ep->flags,
+			 !!(ep->flags & DWC3_EP_ENABLED), &ep->trb_pool_dma);
+	}
+
+	smmu = ioremap(PORTOV_APPS_SMMU_BASE, 0x1000);
+	if (smmu) {
+		scR0 = readl(smmu + PORTOV_SMMU_sCR0);
+		sGFSR = readl(smmu + PORTOV_SMMU_sGFSR);
+		synr0 = readl(smmu + PORTOV_SMMU_sGFSYNR0);
+		synr1 = readl(smmu + PORTOV_SMMU_sGFSYNR1);
+		synr2 = readl(smmu + PORTOV_SMMU_sGFSYNR2);
+		iounmap(smmu);
+	}
+	pr_emerg("portov-usb state smmu scR0=%08x sGFSR=%08x GFSYNR0=%08x GFSYNR1=%08x GFSYNR2=%08x\n",
+		 scR0, sGFSR, synr0, synr1, synr2);
+	portov_probe_gcc_state();
+}
+
+/*
+ * Record the thing that actually breaks the gadget: DCTL.RUN_STOP going from
+ * one to zero.  The initramfs side writes its own "portov-usb udc-trace" and
+ * "udcmon" lines with the same boottime clock, so the two timelines can be
+ * lined up on the panel.
+ */
+static void portov_watch_state(struct work_struct *work)
+{
+	struct dwc3 *dwc = portov_state_dwc;
+	u32 dctl;
+
+	if (!dwc || !dwc->gadget)
+		return;
+
+	dctl = dwc3_readl(dwc, DWC3_DCTL);
+	pr_emerg("portov-usb watch t=%llds dctl=%08x run=%u pullups=%u connected=%u state=%d udc=%s\n",
+		 (long long)ktime_get_boottime_seconds(), dctl,
+		 !!(dctl & DWC3_DCTL_RUN_STOP),
+		 dwc->pullups_connected, dwc->connected,
+		 dwc->gadget->state, dev_name(&dwc->gadget->dev));
+
+	if (++portov_watch_count < 25)
+		schedule_delayed_work(&portov_watch_work,
+				      msecs_to_jiffies(2000));
+}
+
 static int dwc3_gadget_soft_connect(struct dwc3 *dwc)
 {
 	int ret;
@@ -2813,6 +2996,12 @@ static int dwc3_gadget_soft_connect(struct dwc3 *dwc)
 		return ret;
 
 	dwc3_event_buffers_setup(dwc);
+	portov_state_dwc = dwc;
+	INIT_DELAYED_WORK(&portov_state_work, portov_probe_state);
+	INIT_DELAYED_WORK(&portov_watch_work, portov_watch_state);
+	portov_watch_count = 0;
+	schedule_delayed_work(&portov_state_work, msecs_to_jiffies(20000));
+	schedule_delayed_work(&portov_watch_work, msecs_to_jiffies(1000));
 	__dwc3_gadget_start(dwc);
 	return dwc3_gadget_run_stop(dwc, true);
 }
