@@ -9,12 +9,8 @@ title: Qualcomm Technologies, Inc. SM7435 TLMM block
 maintainers:
   - SignKirigami <prcups@krgm.moe>
 
-description: |
+description:
   Top Level Mode Multiplexer pin controller in Qualcomm SM7435 SoC.
-
-  Only the pins, the pin groups and the GPIO controller are described so
-  far: the pin-function tables have not been ported yet, so the only
-  function this driver offers is "gpio".
 
 allOf:
   - $ref: /schemas/pinctrl/qcom,tlmm-common.yaml#
@@ -67,8 +63,8 @@ $defs:
           subnode.
         items:
           oneOf:
-            - pattern: "^gpio([0-9]|[1-9][0-9]|1[0-3][0-9]|14[01])$"
-            - enum: [sdc2_clk, sdc2_cmd, sdc2_data, ufs_reset]
+            - pattern: "^gpio([0-9]|[1-9][0-9]|1[0-3][0-9]|140)$"
+            - enum: [ sdc1_clk, sdc1_cmd, sdc1_data, sdc1_rclk, sdc2_clk, sdc2_cmd, sdc2_data, ufs_reset ]
           minItems: 1
           maxItems: 36
 
@@ -76,7 +72,79 @@ $defs:
         description:
           Specify the alternative function to be configured for the specified
           pins.
-        enum: [gpio]
+        enum: [ gpio,
+                atest_char_start, atest_char_status0, atest_char_status1,
+                atest_char_status2, atest_char_status3, atest_usb0_atereset,
+                atest_usb0_testdataout00, atest_usb0_testdataout01, atest_usb0_testdataout02,
+                atest_usb0_testdataout03, audio_ref_clk, cam_mclk,
+                cci_async_in0, cci_i2c_scl0, cci_i2c_scl1,
+                cci_i2c_scl2, cci_i2c_scl3, cci_i2c_sda0,
+                cci_i2c_sda1, cci_i2c_sda2, cci_i2c_sda3,
+                cci_timer0, cci_timer1, cci_timer2,
+                cci_timer3, cmu_rng_entropy0, cmu_rng_entropy1,
+                cmu_rng_entropy2, cmu_rng_entropy3, coex_uart1_rx,
+                coex_uart1_tx, cri_trng_rosc, cri_trng_rosc0,
+                cri_trng_rosc1, dbg_out_clk, ddr_bist_complete,
+                ddr_bist_fail, ddr_bist_start, ddr_bist_stop,
+                ddr_pxi0_test, ddr_pxi1_test, dp0_hot_plug,
+                gcc_gp1_clk, gcc_gp2_clk, gcc_gp3_clk,
+                host2wlan_sol_mira, host2wlan_sol_mirb, i2s0_data0,
+                i2s0_data1, i2s0_sck, i2s0_ws,
+                ibi_i3c_qup0, ibi_i3c_qup1, jitter_bist_ref,
+                mdp_vsync0_out, mdp_vsync1_out, mdp_vsync2_out,
+                mdp_vsync3_out, mdp_vsync_e, mdp_vsync_p,
+                mdp_vsync_s, nav_gpio0, nav_gpio1,
+                nav_gpio2, pcie0_clk_req, phase_flag_status0,
+                phase_flag_status1, phase_flag_status10, phase_flag_status11,
+                phase_flag_status12, phase_flag_status13, phase_flag_status14,
+                phase_flag_status15, phase_flag_status16, phase_flag_status17,
+                phase_flag_status18, phase_flag_status19, phase_flag_status2,
+                phase_flag_status20, phase_flag_status21, phase_flag_status22,
+                phase_flag_status23, phase_flag_status24, phase_flag_status25,
+                phase_flag_status26, phase_flag_status27, phase_flag_status28,
+                phase_flag_status29, phase_flag_status3, phase_flag_status30,
+                phase_flag_status31, phase_flag_status4, phase_flag_status5,
+                phase_flag_status6, phase_flag_status7, phase_flag_status8,
+                phase_flag_status9, pll_bist_sync, pll_clk_aux,
+                prng_rosc_test0, prng_rosc_test1, prng_rosc_test2,
+                prng_rosc_test3, qdss_cti_trig0, qdss_cti_trig1,
+                qdss_gpio_traceclk, qdss_gpio_tracectl, qdss_gpio_tracedata0,
+                qdss_gpio_tracedata1, qdss_gpio_tracedata10, qdss_gpio_tracedata11,
+                qdss_gpio_tracedata12, qdss_gpio_tracedata13, qdss_gpio_tracedata14,
+                qdss_gpio_tracedata15, qdss_gpio_tracedata2, qdss_gpio_tracedata3,
+                qdss_gpio_tracedata4, qdss_gpio_tracedata5, qdss_gpio_tracedata6,
+                qdss_gpio_tracedata7, qdss_gpio_tracedata8, qdss_gpio_tracedata9,
+                qlink0_enable, qlink0_request, qlink0_wmss_reset,
+                qlink1_enable, qlink1_request, qlink1_wmss_reset,
+                qspi0, qspi1, qspi2,
+                qspi3, qspi_clk, qspi_cs_n,
+                qup0_se0_l0, qup0_se0_l1, qup0_se0_l2,
+                qup0_se0_l3, qup0_se1_l0, qup0_se1_l1,
+                qup0_se1_l2, qup0_se1_l3, qup0_se1_l4,
+                qup0_se2_l0, qup0_se2_l1, qup0_se2_l2,
+                qup0_se2_l3, qup0_se3_l0, qup0_se3_l1,
+                qup0_se3_l2, qup0_se3_l3, qup0_se4_l0,
+                qup0_se4_l1, qup0_se4_l2, qup0_se4_l3,
+                qup0_se5_l0, qup0_se5_l1, qup0_se5_l2,
+                qup0_se5_l3, qup0_se5_l4, qup0_se5_l5,
+                qup0_se5_l6, qup1_se0_l0, qup1_se0_l1,
+                qup1_se0_l2, qup1_se0_l3, qup1_se1_l0,
+                qup1_se1_l1, qup1_se1_l2, qup1_se1_l3,
+                qup1_se2_l0, qup1_se2_l1, qup1_se2_l2,
+                qup1_se2_l3, qup1_se2_l4, qup1_se3_l0,
+                qup1_se3_l1, qup1_se3_l2, qup1_se3_l3,
+                qup1_se5_l0, qup1_se5_l1, qup1_se5_l2,
+                qup1_se5_l3, sd_write_protect, tb_trig_sdc1,
+                tb_trig_sdc2, tgu_ch0_trigout, tgu_ch1_trigout,
+                tgu_ch2_trigout, tgu_ch3_trigout, tmess_prng_rosc0,
+                tmess_prng_rosc1, tmess_prng_rosc2, tmess_prng_rosc3,
+                tsense_pwm1_out, tsense_pwm2_out, uim0_clk,
+                uim0_data, uim0_present, uim0_reset,
+                uim1_clk, uim1_data, uim1_present,
+                uim1_reset, usb0_hs_ac, usb0_phy_ps,
+                vfr_0_mira, vfr_0_mirb, vfr_1,
+                vsense_trigger_mirnat, wlan1_adc_dtest0, wlan1_adc_dtest1,
+                wlan2_adc_dtest0, wlan2_adc_dtest1 ]
 
     required:
       - pins
@@ -108,13 +176,13 @@ examples:
         uart-w-state {
             rx-pins {
                 pins = "gpio23";
-                function = "gpio";
+                function = "qup1_se2_l0";
                 bias-pull-up;
             };
 
             tx-pins {
                 pins = "gpio22";
-                function = "gpio";
+                function = "qup1_se2_l0";
                 bias-disable;
             };
         };
