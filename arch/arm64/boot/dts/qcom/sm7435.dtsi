@@ -3,6 +3,7 @@
  * Copyright (c) 2026 portov mainline contributors
  */
 
+#include <dt-bindings/clock/qcom,sm7435-gcc.h>
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 
 / {
@@ -363,13 +364,22 @@
 			compatible = "qcom,sm7435-dwc3", "qcom,snps-dwc3";
 			reg = <0x0 0x0a600000 0x0 0xfc100>;
 
-			clocks = <&usb_cfg_noc_boot_clk>,
-				 <&usb_core_boot_clk>,
-				 <&usb_iface_boot_clk>,
-				 <&usb_sleep_boot_clk>,
-				 <&usb_mock_utmi_boot_clk>;
+			/*
+			 * Use the GCC provider for all DWC3 clocks.  Rates remain
+			 * inherited from the bootloader for this first consumer switch;
+			 * assigning shared RCG rates is a separate hardware-ownership
+			 * step.
+			 */
+			clocks = <&gcc GCC_CFG_NOC_USB3_PRIM_AXI_CLK>,
+				 <&gcc GCC_USB30_PRIM_MASTER_CLK>,
+				 <&gcc GCC_AGGRE_USB3_PRIM_AXI_CLK>,
+				 <&gcc GCC_USB30_PRIM_SLEEP_CLK>,
+				 <&gcc GCC_USB30_PRIM_MOCK_UTMI_CLK>;
 			clock-names = "cfg_noc", "core", "iface", "sleep",
 				      "mock_utmi";
+			assigned-clocks = <&gcc GCC_USB30_PRIM_MOCK_UTMI_CLK_SRC>,
+					  <&gcc GCC_USB30_PRIM_MASTER_CLK_SRC>;
+			assigned-clock-rates = <19200000>, <133333333>;
 
 			interrupts-extended = <&intc GIC_SPI 133 IRQ_TYPE_LEVEL_HIGH>,
 					      <&intc GIC_SPI 130 IRQ_TYPE_LEVEL_HIGH>,
