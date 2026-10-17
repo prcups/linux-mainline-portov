@@ -17,6 +17,24 @@
 
 	chosen {
 		bootargs = "console=ttyGS0,115200n8 ignore_loglevel printk.time=1";
+		#address-cells = <2>;
+		#size-cells = <2>;
+
+		/*
+		 * The firmware reserves a continuous-splash framebuffer and the
+		 * panel keeps scanning out of it, so it can double as a console.
+		 * Same values as diagnostics/portov-console-fixup.dtsi, but
+		 * expressed here because this tree is used directly rather than
+		 * as the base for that fixup.  Diagnostic-only: not upstreamable.
+		 */
+		framebuffer@b8000000 {
+			compatible = "simple-framebuffer";
+			reg = <0x00 0xb8000000 0x00 0x9e3400>;
+			width = <1080>;
+			height = <2400>;
+			stride = <4320>;
+			format = "x8r8g8b8";
+		};
 	};
 
 	memory@80000000 {
@@ -41,8 +59,17 @@
 	};
 };
 
+/*
+ * uart3 stays disabled: it is described as a bare `qcom,geni-debug-uart`
+ * without a `geni-se-qup` wrapper parent, and mainline's geni-se glue needs
+ * that parent - geni_se_clks_on() dereferences se->wrapper, which is NULL
+ * here, so enabling it oopses the kernel (data abort at
+ * geni_se_clks_on+0x1c).  The console paths used by the diagnostic payloads
+ * are portovfb and the USB ACM gadget, so nothing needs this node; a real
+ * UART needs the QUP wrapper description plus the GCC SE clocks.
+ */
 &uart3 {
-	status = "okay";
+	status = "disabled";
 };
 
 &usb_1 {
