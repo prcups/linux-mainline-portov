@@ -63,6 +63,7 @@ obj-$(CONFIG_PINCTRL_SDX75) += pinctrl-sdx75.o
 obj-$(CONFIG_PINCTRL_SHIKRA) += pinctrl-shikra.o
 obj-$(CONFIG_PINCTRL_SM4250_LPASS_LPI) += pinctrl-sm4250-lpass-lpi.o
 obj-$(CONFIG_PINCTRL_SM4450) += pinctrl-sm4450.o
+obj-$(CONFIG_PINCTRL_SM7435) += pinctrl-sm7435.o
 obj-$(CONFIG_PINCTRL_SM6115) += pinctrl-sm6115.o
 obj-$(CONFIG_PINCTRL_SM6115_LPASS_LPI) += pinctrl-sm6115-lpass-lpi.o
 obj-$(CONFIG_PINCTRL_SM6125) += pinctrl-sm6125.o

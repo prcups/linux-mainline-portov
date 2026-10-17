@@ -462,6 +462,17 @@ config PINCTRL_SM4450
 	 Qualcomm Technologies Inc TLMM block found on the Qualcomm
 	 Technologies Inc SM4450 platform.
 
+config PINCTRL_SM7435
+	tristate "Qualcomm SM7435 pin controller driver (GPIO only)"
+	depends on ARM64 || COMPILE_TEST
+	default ARCH_QCOM
+	help
+	 This is the pinctrl and gpiolib driver for the Qualcomm Technologies
+	 Inc TLMM block found on the SM7435 (parrot) platform.  It currently
+	 describes the pins, the pin groups and the GPIO controller only: the
+	 pin-function tables still have to be ported, so pin muxing is not
+	 available yet.
+
 config PINCTRL_SM6115
 	tristate "Qualcomm SM6115,SM4250 pin controller driver"
 	depends on ARM64 || COMPILE_TEST
