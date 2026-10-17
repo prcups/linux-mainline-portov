@@ -3171,6 +3171,7 @@ static int gcc_sm7435_probe(struct platform_device *pdev)
 				msecs_to_jiffies(gcc_sm7435_provider_delay_ms));
 			return 0;
 		case 25: {
+			struct gdsc_desc gdsc_desc = {};
 			int failures;
 
 			ret = gcc_sm7435_register_all_without_init(pdev,
@@ -3192,6 +3193,15 @@ static int gcc_sm7435_probe(struct platform_device *pdev)
 			ret = gcc_sm7435_register_reset_controller(pdev,
 							     &handoff_desc, regmap);
 			pr_emerg("portov-gcc: reset provider registration returned %d\n",
+				 ret);
+			if (ret)
+				return ret;
+
+			gdsc_desc.dev = &pdev->dev;
+			gdsc_desc.scs = gcc_sm7435_gdscs;
+			gdsc_desc.num = ARRAY_SIZE(gcc_sm7435_gdscs);
+			ret = gdsc_register_handoff(&gdsc_desc, NULL, regmap);
+			pr_emerg("portov-gcc: handoff GDSC provider registration returned %d\n",
 				 ret);
 			return ret;
 		}

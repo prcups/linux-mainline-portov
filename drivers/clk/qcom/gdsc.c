@@ -675,6 +675,60 @@ err_pm_subdomain_remove:
 	return ret;
 }
 
+int gdsc_register_handoff(struct gdsc_desc *desc,
+			  struct reset_controller_dev *rcdev,
+			  struct regmap *regmap)
+{
+	struct genpd_onecell_data *data;
+	struct device *dev = desc->dev;
+	struct gdsc **scs = desc->scs;
+	size_t num = desc->num;
+	int i, on, ret;
+
+	data = devm_kzalloc(dev, sizeof(*data), GFP_KERNEL);
+	if (!data)
+		return -ENOMEM;
+
+	data->domains = devm_kcalloc(dev, num, sizeof(*data->domains),
+				     GFP_KERNEL);
+	if (!data->domains)
+		return -ENOMEM;
+
+	data->num_domains = num;
+	for (i = 0; i < num; i++) {
+		if (!scs[i])
+			continue;
+
+		scs[i]->regmap = regmap;
+		scs[i]->rcdev = rcdev;
+		on = gdsc_check_status(scs[i], GDSC_ON);
+		if (on < 0)
+			goto err_remove;
+
+		if (!scs[i]->pd.power_off)
+			scs[i]->pd.power_off = gdsc_disable;
+		if (!scs[i]->pd.power_on)
+			scs[i]->pd.power_on = gdsc_enable;
+		if (scs[i]->flags & ALWAYS_ON)
+			scs[i]->pd.flags |= GENPD_FLAG_ALWAYS_ON;
+
+		ret = pm_genpd_init(&scs[i]->pd, NULL, !on);
+		if (ret)
+			goto err_remove;
+		data->domains[i] = &scs[i]->pd;
+	}
+
+	return of_genpd_add_provider_onecell(dev->of_node, data);
+
+err_remove:
+	while (i-- > 0) {
+		if (!scs[i])
+			continue;
+		pm_genpd_remove(&scs[i]->pd);
+	}
+	return on < 0 ? on : ret;
+}
+
 void gdsc_unregister(struct gdsc_desc *desc)
 {
 	struct device *dev = desc->dev;

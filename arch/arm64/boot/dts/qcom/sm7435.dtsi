@@ -382,6 +382,7 @@
 			assigned-clock-rates = <19200000>, <133333333>;
 			resets = <&gcc GCC_USB30_PRIM_BCR>;
 			reset-names = "core_reset";
+			power-domains = <&gcc GCC_USB30_PRIM_GDSC>;
 
 			interrupts-extended = <&intc GIC_SPI 133 IRQ_TYPE_LEVEL_HIGH>,
 					      <&intc GIC_SPI 130 IRQ_TYPE_LEVEL_HIGH>,
