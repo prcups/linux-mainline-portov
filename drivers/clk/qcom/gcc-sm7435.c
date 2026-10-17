@@ -3,6 +3,7 @@
  * Copyright (c) 2023, Qualcomm Innovation Center, Inc. All rights reserved.
  */
 
+#include <linux/clk.h>
 #include <linux/clk-provider.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
@@ -2765,8 +2766,49 @@ MODULE_DEVICE_TABLE(of, gcc_sm7435_match_table);
  * missing of_clk provider cannot be observed; what this mode isolates is
  * whether registering the clocks alone is what disturbs USB.
  */
+/*
+ * portov diagnostic filter: mode 5 registers only the clocks whose name
+ * mentions USB, mode 6 everything except those, anything else everything.
+ * Registering the whole set breaks the USB data path while touching no USB
+ * register; splitting the set by name is the first step to find out whether
+ * it is the USB clocks at all.
+ */
+static bool gcc_sm7435_want_clock(const char *name, int mode)
+{
+	bool usb = strstr(name, "usb") != NULL;
+
+	switch (mode) {
+	case 5:
+		return usb;
+	case 6:
+	case 21: /* non-USB clocks, without shared-RCG init writes */
+	case 22: /* mode 21 plus an OF clock provider */
+	case 23: /* mode 21 plus delayed provider publication */
+		return !usb;
+	case 7:	/* the PHY side: aux, com_aux, pipe and their sources */
+		return strncmp(name, "gcc_usb3_prim_phy", 17) == 0;
+	case 8:	/* the controller side: master, sleep, mock_utmi */
+		return strncmp(name, "gcc_usb30_prim", 14) == 0;
+	case 9:	/* the AXI and reference-clock branches */
+		return strstr(name, "usb3_prim_axi") ||
+		       strstr(name, "usb3_0_clkref");
+	case 10: /* controller side: the USB3 master branch and its source */
+		return strncmp(name, "gcc_usb30_prim_master_", 22) == 0;
+	case 11: /* controller side: sleep and mock_utmi */
+		return strncmp(name, "gcc_usb30_prim_sleep_", 21) == 0 ||
+		       strncmp(name, "gcc_usb30_prim_mock_utmi", 24) == 0;
+	case 12: /* only the USB3 master branch */
+		return strcmp(name, "gcc_usb30_prim_master_clk") == 0;
+	case 13: /* only the USB3 master source */
+		return strcmp(name, "gcc_usb30_prim_master_clk_src") == 0;
+	default:
+		return true;
+	}
+}
+
 static int gcc_sm7435_register_clocks_only(struct platform_device *pdev,
-					   const struct qcom_cc_desc *desc)
+					   const struct qcom_cc_desc *desc,
+					   int mode)
 {
 	struct clk_regmap **rclks = desc->clks;
 	size_t num_clks = desc->num_clks;
@@ -2775,6 +2817,23 @@ static int gcc_sm7435_register_clocks_only(struct platform_device *pdev,
 	for (i = 0; i < num_clks; i++) {
 		if (!rclks[i])
 			continue;
+		if (!gcc_sm7435_want_clock(rclks[i]->hw.init->name, mode))
+			continue;
+		/*
+		 * Mode 20 is the real handoff mode: a clock whose ops->init
+		 * writes hardware at registration (clk_rcg2_shared_init parks
+		 * the RCG on its "safe" parent) must stay untouched, because
+		 * nothing in a handoff boot puts the rate back - the mainline
+		 * DWC3 still uses the fixed boot clocks, so parking the USB3
+		 * master RCG leaves the controller on the wrong clock and the
+		 * data path dies.
+		 */
+		if ((mode == 20 || mode == 21 || mode == 22 || mode == 23) &&
+		    rclks[i]->hw.init->ops->init) {
+			pr_info("portov-usb skipping %s: ops->init writes hardware\n",
+				rclks[i]->hw.init->name);
+			continue;
+		}
 
 		ret = devm_clk_register_regmap(&pdev->dev, rclks[i]);
 		if (ret)
@@ -2784,10 +2843,185 @@ static int gcc_sm7435_register_clocks_only(struct platform_device *pdev,
 	return 0;
 }
 
+/*
+ * Publish every clock that completed registration.  This is deliberately
+ * separate from qcom_cc_really_probe(): that path also registers resets and
+ * GDSCs, and gdsc_init() changes GDSCR state that the bootloader owns during
+ * a handoff boot.
+ *
+ * clk_hw_register() clears hw.init, so hw.core is the reliable marker for a
+ * successfully registered clock.  IDs that were not registered remain
+ * -ENOENT while the numeric clock-cell ABI stays identical.
+ */
+static int gcc_sm7435_register_all_without_init(
+		struct platform_device *pdev, const struct qcom_cc_desc *desc)
+{
+	struct clk_regmap **rclks = desc->clks;
+	size_t num_clks = desc->num_clks;
+	int i, ret;
+
+	for (i = 0; i < num_clks; i++) {
+		const struct clk_init_data *old_init;
+		struct clk_init_data *new_init;
+		struct clk_ops *ops;
+
+		if (!rclks[i])
+			continue;
+
+		old_init = rclks[i]->hw.init;
+		if (old_init->ops->init) {
+			ops = devm_kzalloc(&pdev->dev, sizeof(*ops), GFP_KERNEL);
+			if (!ops)
+				return -ENOMEM;
+			*ops = *old_init->ops;
+			ops->init = NULL;
+
+			new_init = devm_kzalloc(&pdev->dev, sizeof(*new_init),
+						GFP_KERNEL);
+			if (!new_init)
+				return -ENOMEM;
+			*new_init = *old_init;
+			new_init->ops = ops;
+			rclks[i]->hw.init = new_init;
+		}
+
+		ret = devm_clk_register_regmap(&pdev->dev, rclks[i]);
+		if (ret)
+			return ret;
+	}
+
+	return 0;
+}
+
+static int gcc_sm7435_add_provider(struct platform_device *pdev,
+				   const struct qcom_cc_desc *desc, int mode)
+{
+	struct clk_hw_onecell_data *data;
+	struct clk_regmap **rclks = desc->clks;
+	size_t num_clks = desc->num_clks;
+	int i;
+
+	(void)mode;
+	data = devm_kzalloc(&pdev->dev, struct_size(data, hws, num_clks),
+			    GFP_KERNEL);
+	if (!data)
+		return -ENOMEM;
+
+	data->num = num_clks;
+	for (i = 0; i < num_clks; i++)
+		data->hws[i] = ERR_PTR(-ENOENT);
+
+	for (i = 0; i < num_clks; i++) {
+		if (!rclks[i] || !rclks[i]->hw.core)
+			continue;
+
+		data->hws[i] = &rclks[i]->hw;
+	}
+
+	return devm_of_clk_add_hw_provider(&pdev->dev,
+					   of_clk_hw_onecell_get, data);
+}
+
+static int gcc_sm7435_register_clocks_with_provider(
+		struct platform_device *pdev, const struct qcom_cc_desc *desc,
+		int mode)
+{
+	int ret;
+
+	ret = gcc_sm7435_register_clocks_only(pdev, desc, mode);
+	if (ret)
+		return ret;
+
+	return gcc_sm7435_add_provider(pdev, desc, mode);
+}
+
+static struct platform_device *gcc_sm7435_provider_pdev;
+static struct qcom_cc_desc gcc_sm7435_provider_desc;
+static struct delayed_work gcc_sm7435_provider_work;
+static int gcc_sm7435_provider_mode = 23;
+static int gcc_sm7435_provider_delay_ms = 15000;
+module_param_named(provider_delay_ms, gcc_sm7435_provider_delay_ms, int, 0444);
+MODULE_PARM_DESC(provider_delay_ms,
+		 "Delay before publishing the mode 23 OF clock provider");
+
+static struct clk *gcc_sm7435_provider_lookup(struct device_node *np, int id)
+{
+	struct of_phandle_args clkspec = {
+		.np = np,
+		.args_count = 1,
+		.args = { id },
+	};
+
+	return of_clk_get_from_provider(&clkspec);
+}
+
+static int gcc_sm7435_provider_selftest(struct device_node *np)
+{
+	static const struct {
+		int id;
+		const char *name;
+	} tests[] = {
+		{ GCC_GPLL0, "gcc_gpll0" },
+		{ GCC_USB30_PRIM_MASTER_CLK_SRC,
+		  "gcc_usb30_prim_master_clk_src" },
+	};
+	int failures = 0;
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(tests); i++) {
+		struct clk *clk;
+		const char *name;
+
+		clk = gcc_sm7435_provider_lookup(np, tests[i].id);
+		if (IS_ERR(clk)) {
+			pr_err("portov-gcc: selftest lookup %s failed: %ld\n",
+			       tests[i].name, PTR_ERR(clk));
+			failures++;
+			continue;
+		}
+
+		name = __clk_get_name(clk);
+		if (strcmp(name, tests[i].name)) {
+			pr_err("portov-gcc: selftest %s resolved as %s\n",
+			       tests[i].name, name);
+			failures++;
+		} else {
+			pr_emerg("portov-gcc: selftest %s resolved\n",
+				 tests[i].name);
+		}
+		clk_put(clk);
+	}
+
+	return failures;
+}
+
+static void gcc_sm7435_publish_provider(struct work_struct *work)
+{
+	int failures = 0;
+	int ret;
+
+	pr_emerg("portov-gcc: delayed OF provider registration start\n");
+	ret = gcc_sm7435_add_provider(gcc_sm7435_provider_pdev,
+				      &gcc_sm7435_provider_desc,
+				      gcc_sm7435_provider_mode);
+	pr_emerg("portov-gcc: delayed OF provider registration returned %d\n",
+		 ret);
+	if (!ret)
+		failures = gcc_sm7435_provider_selftest(
+				gcc_sm7435_provider_pdev->dev.of_node);
+	pr_emerg("portov-gcc: provider selftest %s (%d failures)\n",
+		 failures ? "FAIL" : "PASS", failures);
+}
+
+static void gcc_sm7435_cancel_provider_work(void *data)
+{
+	cancel_delayed_work_sync(&gcc_sm7435_provider_work);
+}
+
 static int gcc_sm7435_handoff;
 module_param_named(handoff, gcc_sm7435_handoff, int, 0444);
 MODULE_PARM_DESC(handoff,
-		 "Bring-up modes: 1 = clocks only (no GDSCs), 2 = map only, 3 = reset controller only, 4 = clocks only without the reset controller");
+		 "Diagnostic handoff mode; 22 also publishes the OF clock provider");
 
 static int gcc_sm7435_probe(struct platform_device *pdev)
 {
@@ -2831,6 +3065,17 @@ static int gcc_sm7435_probe(struct platform_device *pdev)
 			 gcc_sm7435_handoff);
 
 		switch (gcc_sm7435_handoff) {
+		case 1:
+			/*
+			 * Default handoff mode: register everything except the
+			 * clocks whose ops->init writes hardware at registration.
+			 * clk_rcg2_shared_init() parks shared RCGs on their safe
+			 * parent, and nothing in a handoff boot puts the rate
+			 * back - the mainline DWC3 still uses the fixed boot
+			 * clocks - so the USB3 master RCG must stay untouched.
+			 */
+			return gcc_sm7435_register_clocks_only(pdev,
+							       &handoff_desc, 20);
 		case 2:
 			/* Map the block and register nothing at all. */
 			return 0;
@@ -2846,7 +3091,89 @@ static int gcc_sm7435_probe(struct platform_device *pdev)
 			 * it and registers the clocks by hand below.
 			 */
 			return gcc_sm7435_register_clocks_only(pdev,
-							       &handoff_desc);
+							       &handoff_desc,
+							       4);
+		case 5:	/* only the clocks whose name mentions USB */
+		case 6:	/* every clock except those */
+		case 7:	/* USB clocks: the PHY side only */
+		case 8:	/* USB clocks: the controller side only */
+		case 9:	/* USB clocks: AXI and reference-clock branches */
+		case 10:	/* controller side: master and its source */
+		case 11:	/* controller side: sleep and mock_utmi */
+		case 12:	/* only the USB3 master branch */
+		case 13:	/* only the USB3 master source */
+		case 21:	/* handoff: non-USB clocks without init writes */
+		case 22:
+			return gcc_sm7435_register_clocks_with_provider(
+					pdev, &handoff_desc, 22);
+		case 23:
+			if (gcc_sm7435_provider_delay_ms < 0)
+				return -EINVAL;
+			ret = gcc_sm7435_register_clocks_only(pdev,
+							      &handoff_desc, 23);
+			if (ret)
+				return ret;
+			gcc_sm7435_provider_mode = 23;
+			gcc_sm7435_provider_pdev = pdev;
+			gcc_sm7435_provider_desc = handoff_desc;
+			INIT_DELAYED_WORK(&gcc_sm7435_provider_work,
+					  gcc_sm7435_publish_provider);
+			ret = devm_add_action_or_reset(&pdev->dev,
+					gcc_sm7435_cancel_provider_work, NULL);
+			if (ret)
+				return ret;
+			pr_emerg("portov-gcc: delaying OF provider mode %d registration for %d ms\n",
+				 gcc_sm7435_provider_mode,
+				 gcc_sm7435_provider_delay_ms);
+			schedule_delayed_work(&gcc_sm7435_provider_work,
+				msecs_to_jiffies(gcc_sm7435_provider_delay_ms));
+			return 0;
+		case 24:
+			if (gcc_sm7435_provider_delay_ms < 0)
+				return -EINVAL;
+			ret = gcc_sm7435_register_all_without_init(pdev,
+								   &handoff_desc);
+			if (ret)
+				return ret;
+			gcc_sm7435_provider_mode = 24;
+			gcc_sm7435_provider_pdev = pdev;
+			gcc_sm7435_provider_desc = handoff_desc;
+			INIT_DELAYED_WORK(&gcc_sm7435_provider_work,
+					  gcc_sm7435_publish_provider);
+			ret = devm_add_action_or_reset(&pdev->dev,
+					gcc_sm7435_cancel_provider_work, NULL);
+			if (ret)
+				return ret;
+			pr_emerg("portov-gcc: delaying OF provider mode %d registration for %d ms\n",
+				 gcc_sm7435_provider_mode,
+				 gcc_sm7435_provider_delay_ms);
+			schedule_delayed_work(&gcc_sm7435_provider_work,
+				msecs_to_jiffies(gcc_sm7435_provider_delay_ms));
+			return 0;
+		case 25: {
+			int failures;
+
+			ret = gcc_sm7435_register_all_without_init(pdev,
+								   &handoff_desc);
+			if (ret)
+				return ret;
+
+			pr_emerg("portov-gcc: immediate OF provider registration start\n");
+			ret = gcc_sm7435_add_provider(pdev, &handoff_desc, 25);
+			pr_emerg("portov-gcc: immediate OF provider registration returned %d\n",
+				 ret);
+			if (ret)
+				return ret;
+
+			failures = gcc_sm7435_provider_selftest(pdev->dev.of_node);
+			pr_emerg("portov-gcc: immediate provider selftest %s (%d failures)\n",
+				 failures ? "FAIL" : "PASS", failures);
+			return 0;
+		}
+		case 20:	/* handoff: everything except clocks that write at init */
+			return gcc_sm7435_register_clocks_only(pdev,
+							       &handoff_desc,
+							       gcc_sm7435_handoff);
 		default:
 			break;
 		}
