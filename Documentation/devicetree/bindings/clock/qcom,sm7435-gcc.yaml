@@ -35,9 +35,20 @@ properties:
       - description: UFS Phy Tx symbol 0 clock source
       - description: USB3 Phy wrapper pipe clock source
 
+  clock-names:
+    items:
+      - const: bi_tcxo
+      - const: sleep_clk
+      - const: pcie_0_pipe_clk
+      - const: ufs_phy_rx_symbol_0_clk
+      - const: ufs_phy_rx_symbol_1_clk
+      - const: ufs_phy_tx_symbol_0_clk
+      - const: usb3_phy_wrapper_gcc_usb30_pipe_clk
+
 required:
   - compatible
   - clocks
+  - clock-names
   - '#power-domain-cells'
 
 allOf:
