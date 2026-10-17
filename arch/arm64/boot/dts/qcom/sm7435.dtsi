@@ -380,6 +380,8 @@
 			assigned-clocks = <&gcc GCC_USB30_PRIM_MOCK_UTMI_CLK_SRC>,
 					  <&gcc GCC_USB30_PRIM_MASTER_CLK_SRC>;
 			assigned-clock-rates = <19200000>, <133333333>;
+			resets = <&gcc GCC_USB30_PRIM_BCR>;
+			reset-names = "core_reset";
 
 			interrupts-extended = <&intc GIC_SPI 133 IRQ_TYPE_LEVEL_HIGH>,
 					      <&intc GIC_SPI 130 IRQ_TYPE_LEVEL_HIGH>,

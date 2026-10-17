@@ -3023,6 +3023,26 @@ module_param_named(handoff, gcc_sm7435_handoff, int, 0444);
 MODULE_PARM_DESC(handoff,
 		 "Diagnostic handoff mode; 22 also publishes the OF clock provider");
 
+static int gcc_sm7435_register_reset_controller(
+		struct platform_device *pdev, const struct qcom_cc_desc *desc,
+		struct regmap *regmap)
+{
+	struct qcom_reset_controller *reset;
+
+	reset = devm_kzalloc(&pdev->dev, sizeof(*reset), GFP_KERNEL);
+	if (!reset)
+		return -ENOMEM;
+
+	reset->rcdev.of_node = pdev->dev.of_node;
+	reset->rcdev.ops = &qcom_reset_ops;
+	reset->rcdev.owner = THIS_MODULE;
+	reset->rcdev.nr_resets = desc->num_resets;
+	reset->regmap = regmap;
+	reset->reset_map = desc->resets;
+
+	return devm_reset_controller_register(&pdev->dev, &reset->rcdev);
+}
+
 static int gcc_sm7435_probe(struct platform_device *pdev)
 {
 	struct regmap *regmap;
@@ -3168,7 +3188,12 @@ static int gcc_sm7435_probe(struct platform_device *pdev)
 			failures = gcc_sm7435_provider_selftest(pdev->dev.of_node);
 			pr_emerg("portov-gcc: immediate provider selftest %s (%d failures)\n",
 				 failures ? "FAIL" : "PASS", failures);
-			return 0;
+
+			ret = gcc_sm7435_register_reset_controller(pdev,
+							     &handoff_desc, regmap);
+			pr_emerg("portov-gcc: reset provider registration returned %d\n",
+				 ret);
+			return ret;
 		}
 		case 20:	/* handoff: everything except clocks that write at init */
 			return gcc_sm7435_register_clocks_only(pdev,
