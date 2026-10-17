@@ -25,6 +25,19 @@
 #include <linux/pinctrl/pinconf-generic.h>
 #include <linux/pinctrl/pinconf.h>
 #include <linux/pinctrl/pinmux.h>
+/*
+ * portov diagnostic: bind-only mode.  Linux runs under Gunyah on this device
+ * and TLMM register access is granted per GPIO by the hypervisor; reading a
+ * pin that was not granted raises a synchronous external abort (observed at
+ * pin 16).  The generic probe reads every pin's direction while registering
+ * the gpiochip, so bind-only mode stops before msm_gpio_init() and leaves the
+ * GPIO consumers deferred.
+ */
+static bool portov_bind_only;
+module_param_named(portov_bind_only, portov_bind_only, bool, 0444);
+MODULE_PARM_DESC(portov_bind_only,
+		 "Register the pin controller without touching any pin register (bring-up)");
+
 
 #include <linux/soc/qcom/irq.h>
 
@@ -1501,11 +1514,16 @@ static int msm_gpio_init(struct msm_pinctrl *pctrl)
 	girq->parents[0] = pctrl->irq;
 	girq->init_valid_mask = msm_gpio_irq_init_valid_mask;
 
+	pr_emerg("portov-pinctrl: adding gpiochip (%u gpios), parents=%u\n",
+		 chip->ngpio, girq->num_parents);
+
 	ret = devm_gpiochip_add_data(pctrl->dev, &pctrl->chip, pctrl);
 	if (ret) {
 		dev_err(pctrl->dev, "Failed register gpiochip\n");
 		return ret;
 	}
+
+	pr_emerg("portov-pinctrl: gpiochip registered (irq %d)\n", pctrl->irq);
 
 	/*
 	 * For DeviceTree-supported systems, the gpio core checks the
@@ -1518,6 +1536,7 @@ static int msm_gpio_init(struct msm_pinctrl *pctrl)
 	 * utilize ACPI the driver has to call gpiochip_add_pin_range().
 	 */
 	if (!of_property_present(pctrl->dev->of_node, "gpio-ranges")) {
+		pr_emerg("portov-pinctrl: adding pin range\n");
 		ret = gpiochip_add_pin_range(&pctrl->chip,
 			dev_name(pctrl->dev), 0, 0, chip->ngpio);
 		if (ret) {
@@ -1628,9 +1647,13 @@ int msm_pinctrl_probe(struct platform_device *pdev,
 
 	msm_pinctrl_setup_pm_reset(pctrl);
 
+	pr_emerg("portov-pinctrl: mapped 0x%llx\n", (u64)pctrl->phys_base[0]);
+
 	pctrl->irq = platform_get_irq(pdev, 0);
 	if (pctrl->irq < 0)
 		return pctrl->irq;
+
+	pr_emerg("portov-pinctrl: irq %d\n", pctrl->irq);
 
 	pctrl->desc.owner = THIS_MODULE;
 	pctrl->desc.pctlops = &msm_pinctrl_ops;
@@ -1646,6 +1669,8 @@ int msm_pinctrl_probe(struct platform_device *pdev,
 		return dev_err_probe(&pdev->dev, ret,
 				     "Couldn't register pinctrl driver\n");
 
+	pr_emerg("portov-pinctrl: registered\n");
+
 	for (i = 0; i < soc_data->nfunctions; i++) {
 		func = &soc_data->functions[i];
 
@@ -1659,9 +1684,19 @@ int msm_pinctrl_probe(struct platform_device *pdev,
 		return dev_err_probe(&pdev->dev, ret,
 				     "Couldn't enable pinctrl driver\n");
 
+	pr_emerg("portov-pinctrl: enabled, gpio init\n");
+
+	if (portov_bind_only) {
+		pr_emerg("portov-pinctrl: bind-only mode, skipping the gpiochip\n");
+		platform_set_drvdata(pdev, pctrl);
+		return 0;
+	}
+
 	ret = msm_gpio_init(pctrl);
 	if (ret)
 		return ret;
+
+	pr_emerg("portov-pinctrl: gpio init returned %d\n", ret);
 
 	platform_set_drvdata(pdev, pctrl);
 
