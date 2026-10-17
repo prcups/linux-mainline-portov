@@ -1600,6 +1600,16 @@ config SM_GCC_4450
 	  Say Y if you want to use peripheral devices such as UART, SPI,
 	  I2C, USB, SD/UFS, PCIe, etc.
 
+config SM_GCC_7435
+	tristate "SM7435 Global Clock Controller"
+	depends on ARM64 || COMPILE_TEST
+	select QCOM_GDSC
+	default ARCH_QCOM
+	help
+	  Support for the global clock controller on SM7435 devices
+	  (Qualcomm codename parrot).  Say Y if you want to use peripheral
+	  devices such as UART, SPI, I2C, USB, SD/UFS, PCIe, etc.
+
 config SM_GCC_6115
 	tristate "SM6115 and SM4250 Global Clock Controller"
 	depends on ARM64 || COMPILE_TEST
