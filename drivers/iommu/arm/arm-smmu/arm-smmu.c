@@ -1670,9 +1670,14 @@ static int arm_smmu_handoff_cbs(struct arm_smmu_device *smmu)
 {
 	struct device_node *np = smmu->dev->of_node;
 	u32 *handoff = NULL;
+	u32 *reclaim = NULL;
 	bool *used = NULL;
 	int handoff_count;
+	int reclaim_count;
 	int ret = 0;
+	unsigned int preserved = 0;
+	unsigned int reclaimed = 0;
+	unsigned int reserved = 0;
 	int i, j;
 
 	handoff_count = of_property_count_elems_of_size(
@@ -1697,12 +1702,38 @@ static int arm_smmu_handoff_cbs(struct arm_smmu_device *smmu)
 			goto out_free;
 	}
 
+	reclaim_count = of_property_count_u32_elems(np,
+						    "qcom,reclaim-smrs");
+	if (reclaim_count < 0) {
+		reclaim_count = 0;
+	} else if (reclaim_count % 2) {
+		ret = -EINVAL;
+		goto out_free;
+	} else {
+		reclaim_count /= 2;
+	}
+
+	if (reclaim_count) {
+		reclaim = kcalloc(reclaim_count * 2, sizeof(*reclaim),
+				  GFP_KERNEL);
+		if (!reclaim) {
+			ret = -ENOMEM;
+			goto out_free;
+		}
+
+		ret = of_property_read_u32_array(np, "qcom,reclaim-smrs",
+						 reclaim, reclaim_count * 2);
+		if (ret)
+			goto out_free;
+	}
+
 	for (i = 0; i < smmu->num_mapping_groups; i++) {
 		u32 s2cr = arm_smmu_gr0_read(smmu, ARM_SMMU_GR0_S2CR(i));
 		u32 smr = arm_smmu_gr0_read(smmu, ARM_SMMU_GR0_SMR(i));
 		u16 id, mask;
 		bool valid;
 		bool preserve = smmu->skip_init;
+		bool reclaimable = false;
 
 		if (smmu->features & ARM_SMMU_FEAT_EXIDS) {
 			valid = FIELD_GET(ARM_SMMU_S2CR_EXIDVALID, s2cr);
@@ -1735,29 +1766,65 @@ static int arm_smmu_handoff_cbs(struct arm_smmu_device *smmu)
 		if (!preserve)
 			continue;
 
+		for (j = 0; j < reclaim_count; j++) {
+			if (reclaim[j * 2] == id && reclaim[j * 2 + 1] == mask) {
+				reclaimable = true;
+				break;
+			}
+		}
+
 		smmu->smrs[i].id = id;
 		smmu->smrs[i].mask = mask;
 		smmu->smrs[i].valid = true;
-		smmu->smrs[i].pinned = true;
-
+		smmu->smrs[i].pinned = !reclaimable;
 		smmu->s2crs[i].group = NULL;
 		smmu->s2crs[i].count = 0;
-		smmu->s2crs[i].type = FIELD_GET(ARM_SMMU_S2CR_TYPE, s2cr);
-		smmu->s2crs[i].privcfg =
-			FIELD_GET(ARM_SMMU_S2CR_PRIVCFG, s2cr);
-		smmu->s2crs[i].cbndx =
-			FIELD_GET(ARM_SMMU_S2CR_CBNDX, s2cr);
+		if (reclaimable) {
+			/*
+			 * Keep the firmware SMR slot, but release its S2CR for
+			 * the Linux-owned domain.  Its context bank remains
+			 * reserved below so that only a fresh bank is programmed.
+			 */
+			smmu->s2crs[i] = s2cr_init_val;
+			reclaimed++;
+		} else {
+			smmu->s2crs[i].type = FIELD_GET(ARM_SMMU_S2CR_TYPE, s2cr);
+			smmu->s2crs[i].privcfg =
+				FIELD_GET(ARM_SMMU_S2CR_PRIVCFG, s2cr);
+			smmu->s2crs[i].cbndx =
+				FIELD_GET(ARM_SMMU_S2CR_CBNDX, s2cr);
+		}
 
-		if (smmu->s2crs[i].type == S2CR_TYPE_TRANS &&
-		    smmu->s2crs[i].cbndx < smmu->num_context_banks)
-			set_bit(smmu->s2crs[i].cbndx, smmu->handoff_cbs);
+		if (FIELD_GET(ARM_SMMU_S2CR_TYPE, s2cr) == S2CR_TYPE_TRANS &&
+		    FIELD_GET(ARM_SMMU_S2CR_CBNDX, s2cr) <
+		    smmu->num_context_banks) {
+			unsigned int cbndx = FIELD_GET(ARM_SMMU_S2CR_CBNDX, s2cr);
+
+			if (!test_and_set_bit(cbndx, smmu->handoff_cbs))
+				reserved++;
+			set_bit(cbndx, smmu->context_map);
+		}
+		preserved++;
 
 		dev_dbg(smmu->dev,
-			"handoff SMR %u id=0x%x mask=0x%x cb=%u\n",
-			i, id, mask, smmu->s2crs[i].cbndx);
+			"handoff SMR %u id=0x%x mask=0x%x cb=%u%s\n",
+			i, id, mask,
+			(unsigned int)FIELD_GET(ARM_SMMU_S2CR_CBNDX, s2cr),
+			reclaimable ? " (reclaimable)" : "");
 	}
 
 out_free:
+	if (preserved) {
+		dev_notice(smmu->dev,
+			   "%u firmware SMR mappings preserved, %u reclaimable\n",
+			   preserved, reclaimed);
+		dev_notice(smmu->dev,
+			   "%u context banks reserved, %u available\n",
+			   reserved, smmu->num_context_banks -
+			   bitmap_weight(smmu->context_map,
+					 smmu->num_context_banks));
+	}
+	kfree(reclaim);
 	kfree(used);
 	kfree(handoff);
 	return ret;

@@ -249,6 +249,17 @@ properties:
         - description: Stream ID
         - description: Stream match mask
 
+  qcom,reclaim-smrs:
+    $ref: /schemas/types.yaml#/definitions/uint32-matrix
+    description:
+      Existing firmware stream-match entries that Linux owns and may reuse for
+      its own translation domain. The SMR slot is retained, while the firmware
+      context bank remains reserved and is not reprogrammed.
+    items:
+      items:
+        - description: Stream ID
+        - description: Stream match mask
+
   qcom,skip-init:
     type: boolean
     description:
