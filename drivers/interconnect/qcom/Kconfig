@@ -161,7 +161,9 @@ config INTERCONNECT_QCOM_PARROT
 	select INTERCONNECT_QCOM_BCM_VOTER
 	help
 	  This is a driver for the Qualcomm Network-on-Chip on SM7435
-	  platforms.
+	  platforms. It provides bandwidth aggregation and RPMh BCM voting
+	  for the application processor NoCs used by USB, storage, display,
+	  multimedia and remote processor clients.
 
 config INTERCONNECT_QCOM_QCM2290
 	tristate "Qualcomm QCM2290 interconnect driver"

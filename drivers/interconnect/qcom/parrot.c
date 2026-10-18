@@ -429,7 +429,18 @@ static struct qcom_icc_node qnm_cnoc3_cnoc2 = {
 	.channels = 1,
 	.buswidth = 8,
 	.num_links = 38,
-	.link_nodes = { &qhs_ahb2phy0, &qhs_ahb2phy1, &qhs_anoc_throttle_cfg, &qhs_camera_cfg, &qhs_clk_ctl, &qhs_cpr_cx, &qhs_cpr_mx, &qhs_crypto0_cfg, &qhs_cx_rdpm, &qhs_display_cfg, &qhs_gpuss_cfg, &qhs_imem_cfg, &qhs_ipa, &qhs_ipc_router, &qhs_lpass_cfg, &qhs_mss_cfg, &qhs_mx_rdpm, &qhs_pcie0_cfg, &qhs_pdm, &qhs_pimem_cfg, &qhs_pmu_wrapper_cfg, &qhs_prng, &qhs_qspi, &qhs_qup0, &qhs_qup1, &qhs_sdc1, &qhs_sdc2, &qhs_tcsr, &qhs_tlmm, &qhs_ufs_mem_cfg, &qhs_usb3_0, &qhs_venus_cfg, &qhs_vsense_ctrl_cfg, &qns_a1_noc_cfg, &qns_a2_noc_cfg, &qns_mnoc_cfg, &qns_pcie_anoc_cfg, &qns_snoc_cfg },
+	.link_nodes = {
+			&qhs_ahb2phy0, &qhs_ahb2phy1, &qhs_anoc_throttle_cfg, &qhs_camera_cfg,
+			&qhs_clk_ctl, &qhs_cpr_cx, &qhs_cpr_mx, &qhs_crypto0_cfg,
+			&qhs_cx_rdpm, &qhs_display_cfg, &qhs_gpuss_cfg, &qhs_imem_cfg,
+			&qhs_ipa, &qhs_ipc_router, &qhs_lpass_cfg, &qhs_mss_cfg,
+			&qhs_mx_rdpm, &qhs_pcie0_cfg, &qhs_pdm, &qhs_pimem_cfg,
+			&qhs_pmu_wrapper_cfg, &qhs_prng, &qhs_qspi, &qhs_qup0,
+			&qhs_qup1, &qhs_sdc1, &qhs_sdc2, &qhs_tcsr,
+			&qhs_tlmm, &qhs_ufs_mem_cfg, &qhs_usb3_0, &qhs_venus_cfg,
+			&qhs_vsense_ctrl_cfg, &qns_a1_noc_cfg, &qns_a2_noc_cfg, &qns_mnoc_cfg,
+			&qns_pcie_anoc_cfg, &qns_snoc_cfg,
+		},
 };
 
 static struct qcom_icc_node xm_qdss_dap = {
@@ -437,7 +448,18 @@ static struct qcom_icc_node xm_qdss_dap = {
 	.channels = 1,
 	.buswidth = 8,
 	.num_links = 39,
-	.link_nodes = { &qhs_ahb2phy0, &qhs_ahb2phy1, &qhs_anoc_throttle_cfg, &qhs_camera_cfg, &qhs_clk_ctl, &qhs_cpr_cx, &qhs_cpr_mx, &qhs_crypto0_cfg, &qhs_cx_rdpm, &qhs_display_cfg, &qhs_gpuss_cfg, &qhs_imem_cfg, &qhs_ipa, &qhs_ipc_router, &qhs_lpass_cfg, &qhs_mss_cfg, &qhs_mx_rdpm, &qhs_pcie0_cfg, &qhs_pdm, &qhs_pimem_cfg, &qhs_pmu_wrapper_cfg, &qhs_prng, &qhs_qspi, &qhs_qup0, &qhs_qup1, &qhs_sdc1, &qhs_sdc2, &qhs_tcsr, &qhs_tlmm, &qhs_ufs_mem_cfg, &qhs_usb3_0, &qhs_venus_cfg, &qhs_vsense_ctrl_cfg, &qns_a1_noc_cfg, &qns_a2_noc_cfg, &qns_cnoc2_cnoc3, &qns_mnoc_cfg, &qns_pcie_anoc_cfg, &qns_snoc_cfg },
+	.link_nodes = {
+			&qhs_ahb2phy0, &qhs_ahb2phy1, &qhs_anoc_throttle_cfg, &qhs_camera_cfg,
+			&qhs_clk_ctl, &qhs_cpr_cx, &qhs_cpr_mx, &qhs_crypto0_cfg,
+			&qhs_cx_rdpm, &qhs_display_cfg, &qhs_gpuss_cfg, &qhs_imem_cfg,
+			&qhs_ipa, &qhs_ipc_router, &qhs_lpass_cfg, &qhs_mss_cfg,
+			&qhs_mx_rdpm, &qhs_pcie0_cfg, &qhs_pdm, &qhs_pimem_cfg,
+			&qhs_pmu_wrapper_cfg, &qhs_prng, &qhs_qspi, &qhs_qup0,
+			&qhs_qup1, &qhs_sdc1, &qhs_sdc2, &qhs_tcsr,
+			&qhs_tlmm, &qhs_ufs_mem_cfg, &qhs_usb3_0, &qhs_venus_cfg,
+			&qhs_vsense_ctrl_cfg, &qns_a1_noc_cfg, &qns_a2_noc_cfg, &qns_cnoc2_cnoc3,
+			&qns_mnoc_cfg, &qns_pcie_anoc_cfg, &qns_snoc_cfg,
+		},
 };
 
 static struct qcom_icc_node qnm_cnoc2_cnoc3 = {
@@ -445,7 +467,11 @@ static struct qcom_icc_node qnm_cnoc2_cnoc3 = {
 	.channels = 1,
 	.buswidth = 8,
 	.num_links = 12,
-	.link_nodes = { &qhs_aoss, &qhs_apss, &qhs_compute_cfg, &qhs_qdss_cfg, &qhs_tme_cfg, &qhs_wcss, &qns_cnoc_a2noc, &qxs_boot_imem, &qxs_imem, &qxs_pimem, &xs_qdss_stm, &xs_sys_tcu_cfg },
+	.link_nodes = {
+			&qhs_aoss, &qhs_apss, &qhs_compute_cfg, &qhs_qdss_cfg,
+			&qhs_tme_cfg, &qhs_wcss, &qns_cnoc_a2noc, &qxs_boot_imem,
+			&qxs_imem, &qxs_pimem, &xs_qdss_stm, &xs_sys_tcu_cfg,
+		},
 };
 
 static struct qcom_icc_node qnm_gemnoc_cnoc = {
@@ -453,7 +479,11 @@ static struct qcom_icc_node qnm_gemnoc_cnoc = {
 	.channels = 1,
 	.buswidth = 16,
 	.num_links = 12,
-	.link_nodes = { &qhs_aoss, &qhs_apss, &qhs_compute_cfg, &qhs_qdss_cfg, &qhs_tme_cfg, &qhs_wcss, &qns_cnoc3_cnoc2, &qxs_boot_imem, &qxs_imem, &qxs_pimem, &xs_qdss_stm, &xs_sys_tcu_cfg },
+	.link_nodes = {
+			&qhs_aoss, &qhs_apss, &qhs_compute_cfg, &qhs_qdss_cfg,
+			&qhs_tme_cfg, &qhs_wcss, &qns_cnoc3_cnoc2, &qxs_boot_imem,
+			&qxs_imem, &qxs_pimem, &xs_qdss_stm, &xs_sys_tcu_cfg,
+		},
 };
 
 static struct qcom_icc_node qnm_gemnoc_pcie = {
@@ -646,7 +676,10 @@ static struct qcom_icc_node qhm_config_noc = {
 	.channels = 1,
 	.buswidth = 4,
 	.num_links = 6,
-	.link_nodes = { &qhs_lpass_core, &qhs_lpass_lpi, &qhs_lpass_mpu, &qhs_lpass_top, &srvc_niu_aml_noc, &srvc_niu_lpass_agnoc },
+	.link_nodes = {
+			&qhs_lpass_core, &qhs_lpass_lpi, &qhs_lpass_mpu, &qhs_lpass_top,
+			&srvc_niu_aml_noc, &srvc_niu_lpass_agnoc,
+		},
 };
 
 static struct qcom_icc_node qxm_lpass_dsp = {
