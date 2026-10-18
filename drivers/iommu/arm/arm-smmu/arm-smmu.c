@@ -994,6 +994,9 @@ static void arm_smmu_test_smr_masks(struct arm_smmu_device *smmu)
 	u32 smr;
 	int i;
 
+	if (smmu->skip_init)
+		return;
+
 	if (!smmu->smrs)
 		return;
 	/*
@@ -1045,6 +1048,12 @@ static int arm_smmu_find_sme(struct arm_smmu_device *smmu, u16 id, u16 mask)
 				free_idx = i;
 			continue;
 		}
+		if (smrs[i].pinned) {
+			if (!((id ^ smrs[i].id) &
+			      ~(smrs[i].mask | mask)))
+				return -EINVAL;
+			continue;
+		}
 		/*
 		 * If the new entry is _entirely_ matched by an existing entry,
 		 * then reuse that, with the guarantee that there also cannot
@@ -1069,11 +1078,13 @@ static int arm_smmu_find_sme(struct arm_smmu_device *smmu, u16 id, u16 mask)
 
 static bool arm_smmu_free_sme(struct arm_smmu_device *smmu, int idx)
 {
+	bool pinned = smmu->smrs && smmu->smrs[idx].pinned;
+
 	if (--smmu->s2crs[idx].count)
 		return false;
 
 	smmu->s2crs[idx] = s2cr_init_val;
-	if (smmu->smrs)
+	if (smmu->smrs && !pinned)
 		smmu->smrs[idx].valid = false;
 
 	return true;
@@ -1655,10 +1666,113 @@ static const struct iommu_ops arm_smmu_ops = {
 	}
 };
 
+static int arm_smmu_handoff_cbs(struct arm_smmu_device *smmu)
+{
+	struct device_node *np = smmu->dev->of_node;
+	u32 *handoff = NULL;
+	bool *used = NULL;
+	int handoff_count;
+	int ret = 0;
+	int i, j;
+
+	handoff_count = of_property_count_elems_of_size(
+				np, "qcom,handoff-smrs", sizeof(u32) * 2);
+	if (handoff_count < 0)
+		handoff_count = 0;
+	if (!smmu->skip_init && !handoff_count)
+		return 0;
+
+	if (handoff_count) {
+		handoff = kcalloc(handoff_count * 2, sizeof(*handoff),
+				  GFP_KERNEL);
+		used = kcalloc(handoff_count, sizeof(*used), GFP_KERNEL);
+		if (!handoff || !used) {
+			ret = -ENOMEM;
+			goto out_free;
+		}
+
+		ret = of_property_read_u32_array(np, "qcom,handoff-smrs",
+						 handoff, handoff_count * 2);
+		if (ret)
+			goto out_free;
+	}
+
+	for (i = 0; i < smmu->num_mapping_groups; i++) {
+		u32 s2cr = arm_smmu_gr0_read(smmu, ARM_SMMU_GR0_S2CR(i));
+		u32 smr = arm_smmu_gr0_read(smmu, ARM_SMMU_GR0_SMR(i));
+		u16 id, mask;
+		bool valid;
+		bool preserve = smmu->skip_init;
+
+		if (smmu->features & ARM_SMMU_FEAT_EXIDS) {
+			valid = FIELD_GET(ARM_SMMU_S2CR_EXIDVALID, s2cr);
+			id = FIELD_GET(ARM_SMMU_SMR_ID, smr);
+			mask = FIELD_GET(ARM_SMMU_SMR_MASK, smr);
+		} else {
+			valid = FIELD_GET(ARM_SMMU_SMR_VALID, smr);
+			id = FIELD_GET(ARM_SMMU_SMR_ID, smr);
+			mask = FIELD_GET(ARM_SMMU_SMR_MASK,
+					 smr & ~ARM_SMMU_SMR_VALID);
+		}
+		if (!valid)
+			continue;
+
+		if (!preserve) {
+			for (j = 0; j < handoff_count; j++) {
+				u16 handoff_id = handoff[j * 2];
+				u16 handoff_mask = handoff[j * 2 + 1];
+
+				if (used[j] ||
+				    (handoff_mask & mask) != mask ||
+				    ((handoff_id ^ id) & ~handoff_mask))
+					continue;
+
+				used[j] = true;
+				preserve = true;
+				break;
+			}
+		}
+		if (!preserve)
+			continue;
+
+		smmu->smrs[i].id = id;
+		smmu->smrs[i].mask = mask;
+		smmu->smrs[i].valid = true;
+		smmu->smrs[i].pinned = true;
+
+		smmu->s2crs[i].group = NULL;
+		smmu->s2crs[i].count = 0;
+		smmu->s2crs[i].type = FIELD_GET(ARM_SMMU_S2CR_TYPE, s2cr);
+		smmu->s2crs[i].privcfg =
+			FIELD_GET(ARM_SMMU_S2CR_PRIVCFG, s2cr);
+		smmu->s2crs[i].cbndx =
+			FIELD_GET(ARM_SMMU_S2CR_CBNDX, s2cr);
+
+		if (smmu->s2crs[i].type == S2CR_TYPE_TRANS &&
+		    smmu->s2crs[i].cbndx < smmu->num_context_banks)
+			set_bit(smmu->s2crs[i].cbndx, smmu->handoff_cbs);
+
+		dev_dbg(smmu->dev,
+			"handoff SMR %u id=0x%x mask=0x%x cb=%u\n",
+			i, id, mask, smmu->s2crs[i].cbndx);
+	}
+
+out_free:
+	kfree(used);
+	kfree(handoff);
+	return ret;
+}
+
 static void arm_smmu_device_reset(struct arm_smmu_device *smmu)
 {
 	int i;
 	u32 reg;
+
+	if (smmu->skip_init) {
+		dev_notice(smmu->dev,
+			   "preserving firmware SMMU initialization\n");
+		return;
+	}
 
 	/* clear global FSR */
 	reg = arm_smmu_gr0_read(smmu, ARM_SMMU_GR0_sGFSR);
@@ -1673,6 +1787,9 @@ static void arm_smmu_device_reset(struct arm_smmu_device *smmu)
 
 	/* Make sure all context banks are disabled and clear CB_FSR  */
 	for (i = 0; i < smmu->num_context_banks; ++i) {
+		if (test_bit(i, smmu->handoff_cbs))
+			continue;
+
 		arm_smmu_write_context_bank(smmu, i);
 		arm_smmu_cb_write(smmu, i, ARM_SMMU_CB_FSR, ARM_SMMU_CB_FSR_FAULT);
 	}
@@ -1739,6 +1856,7 @@ static int arm_smmu_id_size_to_bits(int size)
 static int arm_smmu_device_cfg_probe(struct arm_smmu_device *smmu)
 {
 	unsigned int size;
+	u32 override;
 	u32 id;
 	bool cttw_reg, cttw_fw = smmu->features & ARM_SMMU_FEAT_COHERENT_WALK;
 	int i, ret;
@@ -1814,6 +1932,15 @@ static int arm_smmu_device_cfg_probe(struct arm_smmu_device *smmu)
 			return -ENODEV;
 		}
 
+		ret = of_property_read_u32(smmu->dev->of_node,
+					   "qcom,num-smr-override", &override);
+		if (!ret && override && override < size) {
+			dev_notice(smmu->dev,
+				   "\tlimiting SMRs to %u firmware-owned groups\n",
+				   override);
+			size = override;
+		}
+
 		/* Zero-initialised to mark as invalid */
 		smmu->smrs = devm_kcalloc(smmu->dev, size, sizeof(*smmu->smrs),
 					  GFP_KERNEL);
@@ -1857,6 +1984,15 @@ static int arm_smmu_device_cfg_probe(struct arm_smmu_device *smmu)
 
 	smmu->num_s2_context_banks = FIELD_GET(ARM_SMMU_ID1_NUMS2CB, id);
 	smmu->num_context_banks = FIELD_GET(ARM_SMMU_ID1_NUMCB, id);
+	ret = of_property_read_u32(smmu->dev->of_node,
+				   "qcom,num-context-banks-override",
+				   &override);
+	if (!ret && override && override < smmu->num_context_banks) {
+		dev_notice(smmu->dev,
+			   "\tlimiting context banks to %u firmware-owned entries\n",
+			   override);
+		smmu->num_context_banks = override;
+	}
 	if (smmu->num_s2_context_banks > smmu->num_context_banks) {
 		dev_err(smmu->dev, "impossible number of S2 context banks!\n");
 		return -ENODEV;
@@ -2138,6 +2274,9 @@ static int arm_smmu_device_probe(struct platform_device *pdev)
 	if (err)
 		return err;
 
+	smmu->skip_init = of_property_read_bool(dev->of_node,
+						"qcom,skip-init");
+
 	smmu->base = devm_platform_get_and_ioremap_resource(pdev, 0, &res);
 	if (IS_ERR(smmu->base))
 		return PTR_ERR(smmu->base);
@@ -2223,6 +2362,10 @@ static int arm_smmu_device_probe(struct platform_device *pdev)
 
 	/* Check for RMRs and install bypass SMRs if any */
 	arm_smmu_rmr_install_bypass_smr(smmu);
+
+	err = arm_smmu_handoff_cbs(smmu);
+	if (err)
+		return err;
 
 	arm_smmu_device_reset(smmu);
 	arm_smmu_test_smr_masks(smmu);

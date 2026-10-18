@@ -312,10 +312,12 @@ struct arm_smmu_device {
 	enum arm_smmu_arch_version	version;
 	enum arm_smmu_implementation	model;
 	const struct arm_smmu_impl	*impl;
+	bool				skip_init;
 
 	u32				num_context_banks;
 	u32				num_s2_context_banks;
 	DECLARE_BITMAP(context_map, ARM_SMMU_MAX_CBS);
+	DECLARE_BITMAP(handoff_cbs, ARM_SMMU_MAX_CBS);
 	struct arm_smmu_cb		*cbs;
 	atomic_t			irptndx;
 

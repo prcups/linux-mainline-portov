@@ -64,6 +64,7 @@ properties:
               - qcom,sm6125-smmu-500
               - qcom,sm6350-smmu-500
               - qcom,sm6375-smmu-500
+              - qcom,sm7435-smmu-500
               - qcom,sm8150-smmu-500
               - qcom,sm8250-smmu-500
               - qcom,sm8350-smmu-500
@@ -237,6 +238,33 @@ properties:
       input IDs). This property is not valid for SMMUs using stream indexing, or
       using stream matching with #iommu-cells = <2>, and may be ignored if
       present in such cases.
+
+  qcom,handoff-smrs:
+    $ref: /schemas/types.yaml#/definitions/uint32-matrix
+    description:
+      Stream-match register ID/mask pairs whose firmware-programmed SMR,
+      S2CR and context bank must be preserved across Linux initialization.
+    items:
+      items:
+        - description: Stream ID
+        - description: Stream match mask
+
+  qcom,skip-init:
+    type: boolean
+    description:
+      Preserve the complete firmware SMMU stream table, context banks and
+      global configuration. Linux may allocate only stream IDs and context
+      banks not already owned by firmware.
+
+  qcom,num-smr-override:
+    $ref: /schemas/types.yaml#/definitions/uint32
+    description:
+      Maximum number of stream-matching groups that Linux may access.
+
+  qcom,num-context-banks-override:
+    $ref: /schemas/types.yaml#/definitions/uint32
+    description:
+      Maximum number of SMMU context banks that Linux may access.
 
   clock-names:
     minItems: 1
