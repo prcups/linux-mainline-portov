@@ -488,6 +488,7 @@
 			dma-coherent;
 			qcom,skip-init;
 			qcom,handoff-smrs = <0x800 0x402>;
+			qcom,reclaim-smrs = <0x80 0x0>;
 			qcom,num-smr-override = <120>;
 			qcom,num-context-banks-override = <78>;
 
@@ -631,10 +632,11 @@
 			power-domains = <&gcc GCC_USB30_PRIM_GDSC>;
 			phys = <&usb_hsphy>;
 			phy-names = "usb2-phy";
+			iommus = <&apps_smmu 0x80 0>;
 			/*
-			 * Keep DWC3 outside the Apps SMMU until translation
-			 * attachment can preserve the firmware-owned context
-			 * banks. The controller therefore uses non-coherent DMA.
+			 * Keep the proven non-coherent DMA behavior. The SMMU
+			 * provides address translation; coherent DMA can be
+			 * enabled separately after hardware validation.
 			 */
 			interconnects = <&aggre1_noc MASTER_USB3_0
 					 &mc_virt SLAVE_EBI1>,
