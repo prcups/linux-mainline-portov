@@ -5,6 +5,8 @@
 
 #include <dt-bindings/clock/qcom,sm7435-gcc.h>
 #include <dt-bindings/interrupt-controller/arm-gic.h>
+#include <dt-bindings/interconnect/qcom,parrot.h>
+#include <dt-bindings/soc/qcom,rpmh-rsc.h>
 
 / {
 	compatible = "qcom,sm7435";
@@ -66,6 +68,18 @@
 			#clock-cells = <0>;
 			clock-frequency = <19200000>;
 		};
+	};
+
+	clk_virt: interconnect-0 {
+		compatible = "qcom,parrot-clk-virt";
+		#interconnect-cells = <1>;
+		qcom,bcm-voters = <&apps_bcm_voter>;
+	};
+
+	mc_virt: interconnect-1 {
+		compatible = "qcom,parrot-mc-virt";
+		#interconnect-cells = <1>;
+		qcom,bcm-voters = <&apps_bcm_voter>;
 	};
 
 	cpus {
@@ -132,6 +146,10 @@
 	psci {
 		compatible = "arm,psci-1.0";
 		method = "smc";
+
+		cluster_pd: power-domain-cluster {
+			#power-domain-cells = <0>;
+		};
 	};
 
 	timer {
@@ -328,6 +346,101 @@
 				      "usb3_phy_wrapper_gcc_usb30_pipe_clk";
 		};
 
+		apps_rsc: rsc@17a00000 {
+			compatible = "qcom,rpmh-rsc";
+			reg = <0x0 0x17a00000 0x0 0x10000>,
+			      <0x0 0x17a10000 0x0 0x10000>,
+			      <0x0 0x17a20000 0x0 0x10000>;
+			reg-names = "drv-0", "drv-1", "drv-2";
+			interrupts = <GIC_SPI 3 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 4 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 5 IRQ_TYPE_LEVEL_HIGH>;
+			power-domains = <&cluster_pd>;
+			qcom,tcs-offset = <0xd00>;
+			qcom,drv-id = <2>;
+			qcom,tcs-config = <ACTIVE_TCS 3>, <SLEEP_TCS 2>,
+					  <WAKE_TCS 2>, <CONTROL_TCS 0>;
+			label = "apps_rsc";
+
+			apps_bcm_voter: bcm-voter {
+				compatible = "qcom,bcm-voter";
+			};
+		};
+
+		cnoc2: interconnect@1500000 {
+			compatible = "qcom,parrot-cnoc2";
+			reg = <0x0 0x01500000 0x0 0x1000>;
+			#interconnect-cells = <1>;
+			qcom,bcm-voters = <&apps_bcm_voter>;
+		};
+
+		cnoc3: interconnect@1502000 {
+			compatible = "qcom,parrot-cnoc3";
+			reg = <0x0 0x01502000 0x0 0x1000>;
+			#interconnect-cells = <1>;
+			qcom,bcm-voters = <&apps_bcm_voter>;
+		};
+
+		system_noc: interconnect@1680000 {
+			compatible = "qcom,parrot-system-noc";
+			reg = <0x0 0x01680000 0x0 0x1e200>;
+			#interconnect-cells = <1>;
+			qcom,bcm-voters = <&apps_bcm_voter>;
+		};
+
+		pcie_anoc: interconnect@16c0000 {
+			compatible = "qcom,parrot-pcie-anoc";
+			reg = <0x0 0x016c0000 0x0 0xe280>;
+			#interconnect-cells = <1>;
+			clocks = <&gcc GCC_AGGRE_NOC_PCIE_0_AXI_CLK>,
+				 <&gcc GCC_CFG_NOC_PCIE_ANOC_AHB_CLK>;
+			qcom,bcm-voters = <&apps_bcm_voter>;
+		};
+
+		aggre1_noc: interconnect@16e0000 {
+			compatible = "qcom,parrot-aggre1-noc";
+			reg = <0x0 0x016e0000 0x0 0x1c080>;
+			#interconnect-cells = <1>;
+			clocks = <&gcc GCC_AGGRE_USB3_PRIM_AXI_CLK>;
+			qcom,bcm-voters = <&apps_bcm_voter>;
+		};
+
+		aggre2_noc: interconnect@1700000 {
+			compatible = "qcom,parrot-aggre2-noc";
+			reg = <0x0 0x01700000 0x0 0x31080>;
+			#interconnect-cells = <1>;
+			clocks = <&gcc GCC_SDCC2_AHB_CLK>;
+			qcom,bcm-voters = <&apps_bcm_voter>;
+		};
+
+		mmss_noc: interconnect@1740000 {
+			compatible = "qcom,parrot-mmss-noc";
+			reg = <0x0 0x01740000 0x0 0x1f080>;
+			#interconnect-cells = <1>;
+			qcom,bcm-voters = <&apps_bcm_voter>;
+		};
+
+		gem_noc: interconnect@19100000 {
+			compatible = "qcom,parrot-gem-noc";
+			reg = <0x0 0x19100000 0x0 0xbb800>;
+			#interconnect-cells = <1>;
+			qcom,bcm-voters = <&apps_bcm_voter>;
+		};
+
+		nsp_noc: interconnect@320c0000 {
+			compatible = "qcom,parrot-nsp-noc";
+			reg = <0x0 0x320c0000 0x0 0x10000>;
+			#interconnect-cells = <1>;
+			qcom,bcm-voters = <&apps_bcm_voter>;
+		};
+
+		lpass_ag_noc: interconnect@3c40000 {
+			compatible = "qcom,parrot-lpass-ag-noc";
+			reg = <0x0 0x03c40000 0x0 0x17200>;
+			#interconnect-cells = <1>;
+			qcom,bcm-voters = <&apps_bcm_voter>;
+		};
+
 		tlmm: pinctrl@f000000 {
 			compatible = "qcom,sm7435-tlmm";
 			reg = <0x0 0x0f000000 0x0 0x1000000>;
@@ -400,6 +513,11 @@
 			power-domains = <&gcc GCC_USB30_PRIM_GDSC>;
 			phys = <&usb_hsphy>;
 			phy-names = "usb2-phy";
+			interconnects = <&aggre1_noc MASTER_USB3_0
+					 &mc_virt SLAVE_EBI1>,
+					<&gem_noc MASTER_APPSS_PROC
+					 &cnoc2 SLAVE_USB3_0>;
+			interconnect-names = "usb-ddr", "apps-usb";
 
 			interrupts-extended = <&intc GIC_SPI 133 IRQ_TYPE_LEVEL_HIGH>,
 					      <&intc GIC_SPI 130 IRQ_TYPE_LEVEL_HIGH>,
