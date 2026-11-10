@@ -1766,6 +1766,14 @@ static int arm_smmu_handoff_cbs(struct arm_smmu_device *smmu)
 		if (!preserve)
 			continue;
 
+		/*
+		 * skip-init avoids the destructive SMR width test. Valid live
+		 * firmware entries still prove these mask bits are implemented.
+		 * Keep normal per-master range and overlap checks in force.
+		 */
+		if (smmu->skip_init)
+			smmu->smr_mask_mask |= mask & smmu->streamid_mask;
+
 		for (j = 0; j < reclaim_count; j++) {
 			if (reclaim[j * 2] == id && reclaim[j * 2 + 1] == mask) {
 				reclaimable = true;
@@ -1815,6 +1823,10 @@ static int arm_smmu_handoff_cbs(struct arm_smmu_device *smmu)
 
 out_free:
 	if (preserved) {
+		if (smmu->skip_init)
+			dev_notice(smmu->dev,
+				   "firmware SMR mask bits: %#x\n",
+				   smmu->smr_mask_mask);
 		dev_notice(smmu->dev,
 			   "%u firmware SMR mappings preserved, %u reclaimable\n",
 			   preserved, reclaimed);
