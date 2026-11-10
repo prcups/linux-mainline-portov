@@ -731,26 +731,44 @@ static const struct qcom_cc_desc disp_cc_sm4450_desc = {
 
 static const struct of_device_id disp_cc_sm4450_match_table[] = {
 	{ .compatible = "qcom,sm4450-dispcc" },
+	{ .compatible = "qcom,sm7435-dispcc" },
 	{ }
 };
 MODULE_DEVICE_TABLE(of, disp_cc_sm4450_match_table);
 
 static int disp_cc_sm4450_probe(struct platform_device *pdev)
 {
+	struct qcom_cc_desc desc = disp_cc_sm4450_desc;
 	struct regmap *regmap;
+	bool handoff;
 
 	regmap = qcom_cc_map(pdev, &disp_cc_sm4450_desc);
 	if (IS_ERR(regmap))
 		return PTR_ERR(regmap);
 
-	clk_lucid_evo_pll_configure(&disp_cc_pll0, regmap, &disp_cc_pll0_config);
-	clk_lucid_evo_pll_configure(&disp_cc_pll1, regmap, &disp_cc_pll0_config);
+	handoff = of_device_is_compatible(pdev->dev.of_node,
+					  "qcom,sm7435-dispcc");
+	if (handoff) {
+		/*
+		 * The downstream parrot DISPCC exposes no GDSC provider. The
+		 * SM4450 GDSC register layout is not a valid substitute: attaching
+		 * it as an MDSS power domain gates the AHB branch before MDSS can
+		 * bring its own clocks up.
+		 */
+		desc.gdscs = NULL;
+		desc.num_gdscs = 0;
+	} else {
+		clk_lucid_evo_pll_configure(&disp_cc_pll0, regmap,
+					    &disp_cc_pll0_config);
+		clk_lucid_evo_pll_configure(&disp_cc_pll1, regmap,
+					    &disp_cc_pll0_config);
 
-	/* Keep some clocks always enabled */
-	qcom_branch_set_clk_en(regmap, 0xe070); /* DISP_CC_SLEEP_CLK */
-	qcom_branch_set_clk_en(regmap, 0xe054); /* DISP_CC_XO_CLK */
+		/* Keep some clocks always enabled */
+		qcom_branch_set_clk_en(regmap, 0xe070); /* DISP_CC_SLEEP_CLK */
+		qcom_branch_set_clk_en(regmap, 0xe054); /* DISP_CC_XO_CLK */
+	}
 
-	return qcom_cc_really_probe(&pdev->dev, &disp_cc_sm4450_desc, regmap);
+	return qcom_cc_really_probe(&pdev->dev, &desc, regmap);
 }
 
 static struct platform_driver disp_cc_sm4450_driver = {
