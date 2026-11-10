@@ -128,11 +128,24 @@ static int update_config(struct clk_rcg2 *rcg)
 		ret = regmap_read(rcg->clkr.regmap, rcg->cmd_rcgr + CMD_REG, &cmd);
 		if (ret)
 			return ret;
-		if (!(cmd & CMD_UPDATE))
+		if (!(cmd & CMD_UPDATE)) {
+			if (!strcmp(name, "disp_cc_mdss_pclk0_clk_src"))
+				pr_info("PORTOV_PCLK_UPDATE: acknowledged cmd=%08x\n", cmd);
 			return 0;
+		}
 		udelay(1);
 	}
 
+	if (!strcmp(name, "disp_cc_mdss_pclk0_clk_src")) {
+		u32 cfg = 0, m = 0, n = 0, d = 0;
+
+		regmap_read(rcg->clkr.regmap, RCG_CFG_OFFSET(rcg), &cfg);
+		regmap_read(rcg->clkr.regmap, RCG_M_OFFSET(rcg), &m);
+		regmap_read(rcg->clkr.regmap, RCG_N_OFFSET(rcg), &n);
+		regmap_read(rcg->clkr.regmap, RCG_D_OFFSET(rcg), &d);
+		pr_info("PORTOV_PCLK_RCG: cmd=%08x cfg=%08x m=%08x n=%08x d=%08x\n",
+			cmd, cfg, m, n, d);
+	}
 	WARN(1, "%s: rcg didn't update its configuration.", name);
 	return -EBUSY;
 }

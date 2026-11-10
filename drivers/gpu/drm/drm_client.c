@@ -140,7 +140,11 @@ void drm_client_register(struct drm_client_dev *client)
 		 * Hold the clientlist_mutex as for a regular hotplug
 		 * event.
 		 */
+		drm_info(dev, "PORTOV_CLIENT: %s hotplug start\n",
+			 client->name);
 		ret = client->funcs->hotplug(client);
+		drm_info(dev, "PORTOV_CLIENT: %s hotplug complete ret=%d\n",
+			 client->name, ret);
 		if (ret)
 			drm_dbg_kms(dev, "client hotplug ret=%d\n", ret);
 	}

@@ -28,6 +28,7 @@
 #include <linux/init.h>
 #include <linux/io.h>
 #include <linux/kernel.h>
+#include <linux/moduleparam.h>
 #include <linux/printk.h>
 #include <linux/string.h>
 
@@ -38,6 +39,11 @@
 
 #define PORTOV_FB_FG		0x00ffffff
 #define PORTOV_FB_BG		0x00000000
+
+/* Boot-time isolation: skip both the initial clear and console writes. */
+static bool portov_console_disabled;
+module_param_named(disable, portov_console_disabled, bool, 0400);
+MODULE_PARM_DESC(disable, "Skip diagnostic framebuffer console initialization");
 
 static u32 *portov_fb;
 static const struct font_desc *portov_font;
@@ -130,6 +136,9 @@ static void portov_console_write(struct console *co, const char *s,
 		"initramfs", "udc", "UDC", "regulator", "reset",
 		"endpoint", "gadget", "descriptor", "composite", "setup",
 		"ssusb", "dwc", "hsphy", "xhci",
+		"PORTOV", "Unable to handle", "Internal error", "ESR =",
+		"EC =", "FSC =", "pc :", "lr :", "sp :", "pstate:", "CPU:",
+		"Modules linked in:", "Hardware name:", "Workqueue:", "Code:",
 	};
 	/*
 	 * Noise that repeats without bound and would scroll the useful lines off
@@ -201,6 +210,11 @@ static struct console portov_console = {
 
 static int __init portov_diag_console(void)
 {
+	if (portov_console_disabled) {
+		pr_info("portov-diag-console: disabled before framebuffer access\n");
+		return 0;
+	}
+
 	/*
 	 * The splash region is reserved-memory without "no-map", so it is
 	 * already covered by the linear map; ioremap() would be refused and

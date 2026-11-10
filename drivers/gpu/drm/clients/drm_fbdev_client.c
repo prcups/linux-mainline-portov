@@ -64,16 +64,20 @@ static int drm_fbdev_client_hotplug(struct drm_client_dev *client)
 	if (dev->fb_helper)
 		return drm_fb_helper_hotplug_event(dev->fb_helper);
 
+	drm_info(dev, "PORTOV_FBDEV: helper init start\n");
 	ret = drm_fb_helper_init(dev, fb_helper);
 	if (ret)
 		goto err_drm_err;
+	drm_info(dev, "PORTOV_FBDEV: helper init complete\n");
 
 	if (!drm_drv_uses_atomic_modeset(dev))
 		drm_helper_disable_unused_functions(dev);
 
+	drm_info(dev, "PORTOV_FBDEV: initial config start\n");
 	ret = drm_fb_helper_initial_config(fb_helper);
 	if (ret)
 		goto err_drm_fb_helper_fini;
+	drm_info(dev, "PORTOV_FBDEV: initial config complete\n");
 
 	return 0;
 
@@ -137,6 +141,8 @@ int drm_fbdev_client_setup(struct drm_device *dev, const struct drm_format_info 
 	unsigned int color_mode;
 	int ret;
 
+	drm_info(dev, "PORTOV_FBDEV: setup start\n");
+
 	/* TODO: Use format info throughout DRM */
 	if (format) {
 		unsigned int bpp = drm_format_info_bpp(format, 0);
@@ -166,14 +172,17 @@ int drm_fbdev_client_setup(struct drm_device *dev, const struct drm_format_info 
 	if (!fb_helper)
 		return -ENOMEM;
 	drm_fb_helper_prepare(dev, fb_helper, color_mode, NULL);
+	drm_info(dev, "PORTOV_FBDEV: helper prepared\n");
 
 	ret = drm_client_init(dev, &fb_helper->client, "fbdev", &drm_fbdev_client_funcs);
 	if (ret) {
 		drm_err(dev, "Failed to register client: %d\n", ret);
 		goto err_drm_client_init;
 	}
+	drm_info(dev, "PORTOV_FBDEV: client initialized\n");
 
 	drm_client_register(&fb_helper->client);
+	drm_info(dev, "PORTOV_FBDEV: client registered\n");
 
 	return 0;
 

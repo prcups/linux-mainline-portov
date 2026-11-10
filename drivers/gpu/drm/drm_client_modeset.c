@@ -646,6 +646,7 @@ static bool drm_client_firmware_config(struct drm_client_dev *client,
 		return false;
 
 	drm_modeset_acquire_init(&ctx, 0);
+	drm_info(dev, "PORTOV_MODESET: atomic commit start\n");
 
 	while (drm_modeset_lock_all_ctx(dev, &ctx) != 0)
 		drm_modeset_backoff(&ctx);
@@ -1069,6 +1070,7 @@ retry:
 		if (ret != 0)
 			goto out_state;
 	}
+	drm_info(dev, "PORTOV_MODESET: planes prepared\n");
 
 	drm_client_for_each_modeset(mode_set, client) {
 		struct drm_plane *primary = mode_set->crtc->primary;
@@ -1097,11 +1099,18 @@ retry:
 			crtc_state->active = false;
 		}
 	}
+	drm_info(dev, "PORTOV_MODESET: configs prepared\n");
 
-	if (check)
+	if (check) {
+		drm_info(dev, "PORTOV_MODESET: atomic check start\n");
 		ret = drm_atomic_check_only(state);
-	else
+		drm_info(dev, "PORTOV_MODESET: atomic check returned %d\n", ret);
+	} else {
+		drm_info(dev, "PORTOV_MODESET: atomic commit call start\n");
 		ret = drm_atomic_commit(state);
+		drm_info(dev, "PORTOV_MODESET: atomic commit call returned %d\n",
+			 ret);
+	}
 
 out_state:
 	if (ret == -EDEADLK)

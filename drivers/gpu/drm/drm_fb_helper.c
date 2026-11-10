@@ -1732,7 +1732,9 @@ __drm_fb_helper_initial_config_and_unlock(struct drm_fb_helper *fb_helper)
 
 		goto err_drm_fb_helper_release_info;
 	}
+	drm_info(dev, "PORTOV_FBDEV: framebuffer probe complete\n");
 	drm_setup_crtcs_fb(fb_helper);
+	drm_info(dev, "PORTOV_FBDEV: CRTC setup complete\n");
 
 	fb_helper->deferred_setup = false;
 
@@ -1743,7 +1745,9 @@ __drm_fb_helper_initial_config_and_unlock(struct drm_fb_helper *fb_helper)
 	 * register the fbdev emulation instance in kernel_fb_helper_list. */
 	mutex_unlock(&fb_helper->lock);
 
+	drm_info(dev, "PORTOV_FBDEV: register_framebuffer start\n");
 	ret = register_framebuffer(info);
+	drm_info(dev, "PORTOV_FBDEV: register_framebuffer returned %d\n", ret);
 	if (ret < 0)
 		return ret;
 

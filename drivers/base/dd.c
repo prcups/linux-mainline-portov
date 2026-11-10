@@ -104,6 +104,10 @@ static void deferred_probe_work_func(struct work_struct *work)
 
 		get_device(dev);
 
+		pr_info("PORTOV_DEFERRED: retry %s reason=%s\n",
+			dev_name(dev),
+			dev->p->deferred_probe_reason ?
+				dev->p->deferred_probe_reason : "none");
 		__device_set_deferred_probe_reason(dev, NULL);
 
 		/*
@@ -122,6 +126,8 @@ static void deferred_probe_work_func(struct work_struct *work)
 
 		dev_dbg(dev, "Retrying from deferred list\n");
 		bus_probe_device(dev);
+		pr_info("PORTOV_DEFERRED: finished %s driver=%s\n",
+			dev_name(dev), dev->driver ? dev->driver->name : "none");
 		mutex_lock(&deferred_probe_mutex);
 
 		put_device(dev);
