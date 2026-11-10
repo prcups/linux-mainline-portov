@@ -9,8 +9,12 @@
 
 #define pr_fmt(fmt)	"[drm:%s:%d] " fmt, __func__, __LINE__
 
+#include <linux/bitfield.h>
 #include <linux/debugfs.h>
+#include <linux/delay.h>
 #include <linux/dma-buf.h>
+#include <linux/iommu.h>
+#include <linux/of.h>
 #include <linux/of_irq.h>
 #include <linux/pm_opp.h>
 
@@ -32,6 +36,7 @@
 #include "dpu_encoder.h"
 #include "dpu_formats.h"
 #include "dpu_hw_vbif.h"
+#include "dpu_hw_intf.h"
 #include "dpu_kms.h"
 #include "dpu_plane.h"
 #include "dpu_vbif.h"
@@ -54,6 +59,33 @@
 
 bool dpu_use_virtual_planes = true;
 module_param(dpu_use_virtual_planes, bool, 0);
+
+/* Diagnostic only: write the next stage (or zero) to release a checkpoint. */
+static unsigned int portov_mmu_hold;
+module_param(portov_mmu_hold, uint, 0644);
+MODULE_PARM_DESC(portov_mmu_hold, "SM7435 MMU checkpoint to hold (1..4, 0 disables)");
+
+static unsigned int portov_mmu_stage;
+module_param(portov_mmu_stage, uint, 0444);
+
+static bool portov_quiesce_splash;
+module_param(portov_quiesce_splash, bool, 0644);
+MODULE_PARM_DESC(portov_quiesce_splash, "Stop firmware DSI timing before IOMMU handoff");
+
+static void portov_mmu_checkpoint(struct dpu_kms *dpu_kms, unsigned int stage)
+{
+	struct device *dev = &dpu_kms->pdev->dev;
+
+	if (!of_device_is_compatible(dev->of_node, "qcom,sm7435-dpu"))
+		return;
+
+	WRITE_ONCE(portov_mmu_stage, stage);
+	dev_info(dev, "PORTOV_MMU_CHECKPOINT: stage=%u hold=%u enter\n",
+		 stage, READ_ONCE(portov_mmu_hold));
+	while (READ_ONCE(portov_mmu_hold) == stage)
+		msleep(100);
+	dev_info(dev, "PORTOV_MMU_CHECKPOINT: stage=%u released\n", stage);
+}
 
 static int dpu_kms_hw_init(struct msm_kms *kms);
 static void _dpu_kms_mmu_destroy(struct dpu_kms *dpu_kms);
@@ -402,7 +434,11 @@ static const struct drm_private_state_funcs dpu_kms_global_state_funcs = {
 
 static void dpu_kms_global_obj_fini(struct dpu_kms *dpu_kms)
 {
+	if (!dpu_kms->global_state_initialized)
+		return;
+
 	drm_atomic_private_obj_fini(&dpu_kms->global_state);
+	dpu_kms->global_state_initialized = false;
 }
 
 static int dpu_kms_parse_data_bus_icc_path(struct dpu_kms *dpu_kms)
@@ -917,6 +953,12 @@ static void dpu_kms_destroy(struct msm_kms *kms)
 
 	msm_kms_destroy(&dpu_kms->base);
 
+	if (dpu_kms->runtime_pm_held) {
+		pm_runtime_put_sync(&dpu_kms->pdev->dev);
+		pm_runtime_put_sync(dpu_kms->pdev->dev.parent);
+		dpu_kms->runtime_pm_held = false;
+	}
+
 	if (dpu_kms->rpm_enabled)
 		pm_runtime_disable(&dpu_kms->pdev->dev);
 }
@@ -1105,12 +1147,72 @@ static void _dpu_kms_mmu_destroy(struct dpu_kms *dpu_kms)
 static int _dpu_kms_mmu_init(struct dpu_kms *dpu_kms)
 {
 	struct drm_gpuvm *vm;
+	struct device *dev = &dpu_kms->pdev->dev;
+	struct iommu_fwspec *fwspec;
+	struct of_phandle_args args;
+	u32 fwid;
+	int ret;
 
+	dev_info(dev, "PORTOV_DPU_IOMMU: mapped=%u start\n",
+		 device_iommu_mapped(dev));
+	if (!device_iommu_mapped(dev)) {
+		fwspec = dev_iommu_fwspec_get(dev);
+		dev_info(dev, "PORTOV_DPU_IOMMU: fwspec=%px\n", fwspec);
+		if (!fwspec) {
+			dev_info(dev, "PORTOV_DPU_IOMMU: parse phandle start\n");
+			ret = of_parse_phandle_with_args(dev->of_node,
+							 "portov,iommus",
+							 "#iommu-cells", 0,
+							 &args);
+			if (ret)
+				return ret;
+			dev_info(dev, "PORTOV_DPU_IOMMU: parse phandle complete\n");
+			if (args.args_count != 2) {
+				ret = -EINVAL;
+			} else {
+				dev_info(dev, "PORTOV_DPU_IOMMU: fwspec init start\n");
+				ret = iommu_fwspec_init(
+					dev, of_fwnode_handle(args.np));
+				dev_info(dev, "PORTOV_DPU_IOMMU: fwspec init returned %d\n",
+					 ret);
+			}
+			of_node_put(args.np);
+			if (ret)
+				return ret;
+
+			fwid = FIELD_PREP(GENMASK(31, 16), args.args[1]) |
+			       FIELD_PREP(GENMASK(15, 0), args.args[0]);
+			dev_info(dev, "PORTOV_DPU_IOMMU: add id 0x%x start\n",
+				 fwid);
+			ret = iommu_fwspec_add_ids(dev, &fwid, 1);
+			dev_info(dev, "PORTOV_DPU_IOMMU: add id returned %d\n",
+				 ret);
+			if (ret)
+				return ret;
+		}
+
+		portov_mmu_checkpoint(dpu_kms, 2);
+		dev_info(dev, "PORTOV_DPU_IOMMU: probe device start\n");
+		ret = iommu_probe_device(dev);
+		dev_info(dev, "PORTOV_DPU_IOMMU: probe device returned %d\n",
+			 ret);
+		if (ret) {
+			dev_err(dev, "PORTOV_DPU_IOMMU: attach failed: %d\n",
+				ret);
+			return ret;
+		}
+		dev_info(dev, "PORTOV_DPU_IOMMU: attached on bind\n");
+	}
+
+	portov_mmu_checkpoint(dpu_kms, 3);
+	dev_info(dev, "PORTOV_DPU_IOMMU: create VM start\n");
 	vm = msm_kms_init_vm(dpu_kms->dev, dpu_kms->dev->dev->parent);
+	dev_info(dev, "PORTOV_DPU_IOMMU: create VM returned %p\n", vm);
 	if (IS_ERR(vm))
 		return PTR_ERR(vm);
 
 	dpu_kms->base.vm = vm;
+	portov_mmu_checkpoint(dpu_kms, 4);
 
 	return 0;
 }
@@ -1139,6 +1241,8 @@ static int dpu_kms_hw_init(struct msm_kms *kms)
 {
 	struct dpu_kms *dpu_kms;
 	struct drm_device *dev;
+	struct device *mdss_dev;
+	bool portov;
 	int rc = -EINVAL;
 	unsigned long max_core_clk_rate;
 	u32 core_rev;
@@ -1150,18 +1254,41 @@ static int dpu_kms_hw_init(struct msm_kms *kms)
 
 	dpu_kms = to_dpu_kms(kms);
 	dev = dpu_kms->dev;
+	mdss_dev = dpu_kms->pdev->dev.parent;
+	portov = of_device_is_compatible(dpu_kms->pdev->dev.of_node,
+					 "qcom,sm7435-dpu");
+
+#define DPU_PORTOV_MARK(fmt, ...)					\
+	do {								\
+		if (portov)						\
+			pr_info("PORTOV_DPU: " fmt, ##__VA_ARGS__);	\
+	} while (0)
+
+	DPU_PORTOV_MARK("hw_init start\n");
 
 	dev->mode_config.cursor_width = 512;
 	dev->mode_config.cursor_height = 512;
 
 	drm_atomic_private_obj_init(dpu_kms->dev, &dpu_kms->global_state,
 				    &dpu_kms_global_state_funcs);
+	dpu_kms->global_state_initialized = true;
+	DPU_PORTOV_MARK("atomic private object initialized\n");
 
 	atomic_set(&dpu_kms->bandwidth_ref, 0);
 
-	rc = pm_runtime_resume_and_get(&dpu_kms->pdev->dev);
+	portov_mmu_checkpoint(dpu_kms, 5);
+	DPU_PORTOV_MARK("MDSS runtime resume start\n");
+	rc = pm_runtime_resume_and_get(mdss_dev);
 	if (rc < 0)
 		goto error;
+	DPU_PORTOV_MARK("MDSS runtime resumed\n");
+
+	portov_mmu_checkpoint(dpu_kms, 6);
+	DPU_PORTOV_MARK("runtime resume start\n");
+	rc = pm_runtime_resume_and_get(&dpu_kms->pdev->dev);
+	if (rc < 0)
+		goto err_mdss_pm_put;
+	DPU_PORTOV_MARK("runtime resumed\n");
 
 	core_rev = readl_relaxed(dpu_kms->mmio + 0x0);
 
@@ -1173,11 +1300,29 @@ static int dpu_kms_hw_init(struct msm_kms *kms)
 		rc = -EINVAL;
 		goto err_pm_put;
 	}
+	DPU_PORTOV_MARK("catalog=%px vbif_cfg=%px mmio=%px vbif=%px\n",
+			dpu_kms->catalog, dpu_kms->catalog->vbif,
+			dpu_kms->mmio, dpu_kms->vbif);
 
 	/*
 	 * Now we need to read the HW catalog and initialize resources such as
 	 * clocks, regulators, GDSC/MMAGIC, ioremap the register ranges etc
 	 */
+	portov_mmu_checkpoint(dpu_kms, 1);
+	if (portov && READ_ONCE(portov_quiesce_splash)) {
+		unsigned int i;
+
+		for (i = 0; i < dpu_kms->catalog->intf_count; i++) {
+			const struct dpu_intf_cfg *intf = &dpu_kms->catalog->intf[i];
+
+			if (intf->type != INTF_DSI ||
+			    intf->controller_id != MSM_DSI_CONTROLLER_0)
+				continue;
+			rc = dpu_hw_intf_quiesce_bootloader(dev, intf, dpu_kms->mmio);
+			if (rc)
+				goto err_pm_put;
+		}
+	}
 	rc = _dpu_kms_mmu_init(dpu_kms);
 	if (rc) {
 		DPU_ERROR("dpu_kms_mmu_init failed: %d\n", rc);
@@ -1190,6 +1335,7 @@ static int dpu_kms_hw_init(struct msm_kms *kms)
 		DPU_ERROR("failed to get UBWC config data: %d\n", rc);
 		goto err_pm_put;
 	}
+	DPU_PORTOV_MARK("mmu and UBWC config ready\n");
 
 	if (!dpu_kms->mdss) {
 		rc = -EINVAL;
@@ -1202,6 +1348,7 @@ static int dpu_kms_hw_init(struct msm_kms *kms)
 		DPU_ERROR("rm init failed: %d\n", rc);
 		goto err_pm_put;
 	}
+	DPU_PORTOV_MARK("resource manager ready\n");
 
 	dpu_kms->hw_mdp = dpu_hw_mdptop_init(dev,
 					     dpu_kms->catalog->mdp,
@@ -1213,6 +1360,7 @@ static int dpu_kms_hw_init(struct msm_kms *kms)
 		dpu_kms->hw_mdp = NULL;
 		goto err_pm_put;
 	}
+	DPU_PORTOV_MARK("MDP top ready\n");
 
 	struct dpu_hw_vbif *hw;
 	const struct dpu_vbif_cfg *vbif = dpu_kms->catalog->vbif;
@@ -1223,6 +1371,7 @@ static int dpu_kms_hw_init(struct msm_kms *kms)
 		DPU_ERROR("failed to init vbif: %d\n", rc);
 		goto err_pm_put;
 	}
+	DPU_PORTOV_MARK("VBIF ready\n");
 
 	dpu_kms->hw_vbif = hw;
 
@@ -1238,6 +1387,7 @@ static int dpu_kms_hw_init(struct msm_kms *kms)
 		DPU_ERROR("failed to init perf %d\n", rc);
 		goto err_pm_put;
 	}
+	DPU_PORTOV_MARK("performance config ready\n");
 
 	/*
 	 * We need to program DP <-> PHY relationship only for SC8180X since it
@@ -1256,6 +1406,7 @@ static int dpu_kms_hw_init(struct msm_kms *kms)
 		dpu_kms->hw_intr = NULL;
 		goto err_pm_put;
 	}
+	DPU_PORTOV_MARK("interrupt controller ready\n");
 
 	dev->mode_config.min_width = 0;
 	dev->mode_config.min_height = 0;
@@ -1276,15 +1427,20 @@ static int dpu_kms_hw_init(struct msm_kms *kms)
 		DPU_ERROR("modeset init failed: %d\n", rc);
 		goto err_pm_put;
 	}
+	DPU_PORTOV_MARK("DRM objects ready\n");
 
 	dpu_vbif_init_memtypes(dpu_kms);
+	DPU_PORTOV_MARK("hw_init complete\n");
 
-	pm_runtime_put_sync(&dpu_kms->pdev->dev);
+	dpu_kms->runtime_pm_held = true;
 
+#undef DPU_PORTOV_MARK
 	return 0;
 
 err_pm_put:
 	pm_runtime_put_sync(&dpu_kms->pdev->dev);
+err_mdss_pm_put:
+	pm_runtime_put_sync(mdss_dev);
 error:
 	_dpu_kms_hw_destroy(dpu_kms);
 
@@ -1380,11 +1536,16 @@ static int dpu_dev_probe(struct platform_device *pdev)
 {
 	struct device *dev = &pdev->dev;
 	struct dpu_kms *dpu_kms;
+	bool portov;
 	int irq;
 	int ret = 0;
 
 	if (!msm_disp_drv_should_bind(&pdev->dev, true))
 		return -ENODEV;
+
+	portov = of_device_is_compatible(dev->of_node, "qcom,sm7435-dpu");
+	if (portov)
+		dev_info(dev, "PORTOV_DPU_PROBE: start\n");
 
 	dpu_kms = devm_kzalloc(dev, sizeof(*dpu_kms), GFP_KERNEL);
 	if (!dpu_kms)
@@ -1405,12 +1566,17 @@ static int dpu_dev_probe(struct platform_device *pdev)
 		return dev_err_probe(dev, ret, "failed to parse clocks\n");
 
 	dpu_kms->num_clocks = ret;
+	if (portov)
+		dev_info(dev, "PORTOV_DPU_PROBE: clocks=%zu\n",
+			 dpu_kms->num_clocks);
 
 	irq = platform_get_irq(pdev, 0);
 	if (irq < 0)
 		return dev_err_probe(dev, irq, "failed to get irq\n");
 
 	dpu_kms->base.irq = irq;
+	if (portov)
+		dev_info(dev, "PORTOV_DPU_PROBE: irq=%d\n", irq);
 
 	if (of_device_is_compatible(dpu_kms->pdev->dev.of_node, "qcom,mdp5"))
 		ret = dpu_kms_mmap_mdp5(dpu_kms);
@@ -1418,10 +1584,15 @@ static int dpu_dev_probe(struct platform_device *pdev)
 		ret = dpu_kms_mmap_dpu(dpu_kms);
 	if (ret)
 		return ret;
+	if (portov)
+		dev_info(dev, "PORTOV_DPU_PROBE: mapped mdp=%px vbif=%px\n",
+			 dpu_kms->mmio, dpu_kms->vbif);
 
 	ret = dpu_kms_parse_data_bus_icc_path(dpu_kms);
 	if (ret)
 		return ret;
+	if (portov)
+		dev_info(dev, "PORTOV_DPU_PROBE: entering msm_drv_probe\n");
 
 	return msm_drv_probe(&pdev->dev, dpu_kms_init, &dpu_kms->base);
 }
@@ -1457,16 +1628,24 @@ static int __maybe_unused dpu_runtime_resume(struct device *dev)
 
 	ddev = dpu_kms->dev;
 
+	portov_mmu_checkpoint(dpu_kms, 7);
+	dev_info(dev, "PORTOV_DPU_RPM: clocks enable start\n");
 	rc = clk_bulk_prepare_enable(dpu_kms->num_clocks, dpu_kms->clocks);
+	dev_info(dev, "PORTOV_DPU_RPM: clocks enable returned %d\n", rc);
 	if (rc) {
 		DPU_ERROR("clock enable failed rc:%d\n", rc);
 		return rc;
 	}
 
+	portov_mmu_checkpoint(dpu_kms, 8);
+	dev_info(dev, "PORTOV_DPU_RPM: VBIF memtypes start\n");
 	dpu_vbif_init_memtypes(dpu_kms);
+	dev_info(dev, "PORTOV_DPU_RPM: VBIF memtypes done\n");
 
+	dev_info(dev, "PORTOV_DPU_RPM: encoder resume start\n");
 	drm_for_each_encoder(encoder, ddev)
 		dpu_encoder_virt_runtime_resume(encoder);
+	dev_info(dev, "PORTOV_DPU_RPM: encoder resume done\n");
 
 	return rc;
 }
@@ -1510,6 +1689,7 @@ static const struct of_device_id dpu_dt_match[] = {
 	{ .compatible = "qcom,sm8250-dpu", .data = &dpu_sm8250_cfg, },
 	{ .compatible = "qcom,sm8350-dpu", .data = &dpu_sm8350_cfg, },
 	{ .compatible = "qcom,sm8450-dpu", .data = &dpu_sm8450_cfg, },
+	{ .compatible = "qcom,sm7435-dpu", .data = &dpu_sm7435_cfg, },
 	{ .compatible = "qcom,sm8550-dpu", .data = &dpu_sm8550_cfg, },
 	{ .compatible = "qcom,sm8650-dpu", .data = &dpu_sm8650_cfg, },
 	{ .compatible = "qcom,sm8750-dpu", .data = &dpu_sm8750_cfg, },

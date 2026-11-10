@@ -1276,7 +1276,9 @@ static void dpu_crtc_enable(struct drm_crtc *crtc,
 
 	old_crtc_state = drm_atomic_get_old_crtc_state(state, crtc);
 
+	dev_info(crtc->dev->dev, "PORTOV_MODESET: CRTC enable start\n");
 	pm_runtime_get_sync(crtc->dev->dev);
+	dev_info(crtc->dev->dev, "PORTOV_MODESET: CRTC runtime resumed\n");
 
 	DRM_DEBUG_KMS("crtc%d\n", crtc->base.id);
 
@@ -1302,6 +1304,7 @@ static void dpu_crtc_enable(struct drm_crtc *crtc,
 
 	/* Enable/restore vblank irq handling */
 	drm_crtc_vblank_on(crtc);
+	dev_info(crtc->dev->dev, "PORTOV_MODESET: CRTC enable complete\n");
 }
 
 static bool dpu_crtc_needs_dirtyfb(struct drm_crtc_state *cstate)

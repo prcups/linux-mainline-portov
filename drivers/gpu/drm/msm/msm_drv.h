@@ -72,6 +72,7 @@ enum msm_dsi_controller {
 struct msm_drm_private {
 
 	struct drm_device *dev;
+	struct delayed_work fbdev_work;
 
 	struct msm_kms *kms;
 	int (*kms_init)(struct drm_device *dev);

@@ -74,15 +74,20 @@ static int msm_irq_install(struct drm_device *dev, unsigned int irq)
 	if (irq == IRQ_NOTCONNECTED)
 		return -ENOTCONN;
 
+	dev_info(dev->dev, "PORTOV_IRQ: preinstall start\n");
 	msm_irq_preinstall(dev);
+	dev_info(dev->dev, "PORTOV_IRQ: preinstall complete\n");
 
 	ret = request_irq(irq, msm_irq, 0, dev->driver->name, dev);
+	dev_info(dev->dev, "PORTOV_IRQ: request_irq returned %d\n", ret);
 	if (ret)
 		return ret;
 
 	kms->irq_requested = true;
 
+	dev_info(dev->dev, "PORTOV_IRQ: postinstall start\n");
 	ret = msm_irq_postinstall(dev);
+	dev_info(dev->dev, "PORTOV_IRQ: postinstall returned %d\n", ret);
 	if (ret) {
 		free_irq(irq, dev);
 		return ret;
@@ -240,7 +245,8 @@ void msm_drm_kms_uninit(struct device *dev)
 	 * irq after uninstall has disabled it.
 	 */
 
-	flush_workqueue(kms->wq);
+	if (kms->wq)
+		flush_workqueue(kms->wq);
 
 	/* clean up event worker threads */
 	for (i = 0; i < MAX_CRTCS; i++) {
@@ -279,6 +285,12 @@ int msm_drm_kms_init(struct device *dev, const struct drm_driver *drv)
 		return ret;
 	}
 
+	ret = pm_runtime_resume_and_get(dev->parent);
+	if (ret) {
+		DRM_DEV_ERROR(dev, "failed to resume MDSS parent: %d\n", ret);
+		return ret;
+	}
+
 	ret = priv->kms_init(ddev);
 	if (ret) {
 		DRM_DEV_ERROR(dev, "failed to load kms\n");
@@ -297,8 +309,10 @@ int msm_drm_kms_init(struct device *dev, const struct drm_driver *drv)
 		DRM_DEV_ERROR(dev, "kms hw init failed: %d\n", ret);
 		goto err_msm_uninit;
 	}
+	dev_info(dev, "PORTOV_KMS: hw init complete\n");
 
 	drm_helper_move_panel_connectors_to_head(ddev);
+	dev_info(dev, "PORTOV_KMS: panel connectors ordered\n");
 
 	drm_for_each_crtc(crtc, ddev) {
 		struct msm_drm_thread *ev_thread;
@@ -316,26 +330,36 @@ int msm_drm_kms_init(struct device *dev, const struct drm_driver *drv)
 
 		sched_set_fifo(ev_thread->worker->task);
 	}
+	dev_info(dev, "PORTOV_KMS: event threads ready\n");
 
 	ret = drm_vblank_init(ddev, ddev->mode_config.num_crtc);
 	if (ret < 0) {
 		DRM_DEV_ERROR(dev, "failed to initialize vblank\n");
 		goto err_msm_uninit;
 	}
+	dev_info(dev, "PORTOV_KMS: vblank ready\n");
 
+	dev_info(dev, "PORTOV_KMS: runtime resume for IRQ start\n");
 	pm_runtime_get_sync(dev);
+	dev_info(dev, "PORTOV_KMS: installing IRQ\n");
 	ret = msm_irq_install(ddev, kms->irq);
+	dev_info(dev, "PORTOV_KMS: IRQ install returned %d\n", ret);
 	pm_runtime_put_sync(dev);
+	dev_info(dev, "PORTOV_KMS: runtime put after IRQ complete\n");
 	if (ret < 0) {
 		DRM_DEV_ERROR(dev, "failed to install IRQ handler\n");
 		goto err_msm_uninit;
 	}
 
+	dev_info(dev, "PORTOV_KMS: mode config reset start\n");
 	drm_mode_config_reset(ddev);
+	dev_info(dev, "PORTOV_KMS: mode config reset complete\n");
 
+	pm_runtime_put(dev->parent);
 	return 0;
 
 err_msm_uninit:
+	pm_runtime_put(dev->parent);
 	return ret;
 }
 
@@ -384,5 +408,6 @@ void msm_drm_kms_post_init(struct device *dev)
 	struct drm_device *ddev = priv->dev;
 
 	drm_kms_helper_poll_init(ddev);
-	drm_client_setup(ddev, NULL);
+	queue_delayed_work(system_wq, &priv->fbdev_work,
+			   msecs_to_jiffies(500));
 }

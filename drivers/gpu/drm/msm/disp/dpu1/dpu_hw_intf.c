@@ -13,6 +13,7 @@
 #include <linux/iopoll.h>
 
 #include <drm/drm_managed.h>
+#include <drm/drm_print.h>
 
 #define INTF_TIMING_ENGINE_EN           0x000
 #define INTF_CONFIG                     0x004
@@ -279,6 +280,28 @@ static void dpu_hw_intf_enable_timing_engine(
 	struct dpu_hw_blk_reg_map *c = &intf->hw;
 	/* Note: Display interface select is handled in top block hw layer */
 	DPU_REG_WRITE(c, INTF_TIMING_ENGINE_EN, enable != 0);
+}
+
+int dpu_hw_intf_quiesce_bootloader(struct drm_device *dev,
+				 const struct dpu_intf_cfg *cfg,
+				 void __iomem *addr)
+{
+	struct dpu_hw_blk_reg_map c = { .blk_addr = addr + cfg->base };
+	u32 timing = DPU_REG_READ(&c, INTF_TIMING_ENGINE_EN);
+	u32 status = DPU_REG_READ(&c, INTF_STATUS);
+	int ret;
+
+	drm_info(dev, "PORTOV_SPLASH: intf=%u base=%#x timing=%08x status=%08x before\n",
+		 cfg->id, cfg->base, timing, status);
+	if (!(timing & BIT(0)) && !(status & BIT(0)))
+		return 0;
+
+	DPU_REG_WRITE(&c, INTF_TIMING_ENGINE_EN, 0);
+	ret = readl_poll_timeout(c.blk_addr + INTF_STATUS, status,
+				!(status & BIT(0)), 100, 50000);
+	drm_info(dev, "PORTOV_SPLASH: intf=%u timing=%08x status=%08x stop_ret=%d\n",
+		 cfg->id, DPU_REG_READ(&c, INTF_TIMING_ENGINE_EN), status, ret);
+	return ret;
 }
 
 static void dpu_hw_intf_setup_prg_fetch(

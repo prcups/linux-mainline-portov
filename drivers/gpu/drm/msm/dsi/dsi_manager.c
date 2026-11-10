@@ -127,9 +127,13 @@ static int enable_phy(struct msm_dsi *msm_dsi,
 	struct msm_dsi_phy_clk_request clk_req;
 	bool is_bonded_dsi = IS_BONDED_DSI();
 
+	dev_info(&msm_dsi->pdev->dev, "PORTOV_MODESET: PHY enable start\n");
 	msm_dsi_host_get_phy_clk_req(msm_dsi->host, &clk_req, is_bonded_dsi);
 
-	return msm_dsi_phy_enable(msm_dsi->phy, &clk_req, shared_timings);
+	int ret = msm_dsi_phy_enable(msm_dsi->phy, &clk_req, shared_timings);
+	dev_info(&msm_dsi->pdev->dev, "PORTOV_MODESET: PHY enable returned %d\n",
+		 ret);
+	return ret;
 }
 
 static int
@@ -219,16 +223,19 @@ static int dsi_mgr_bridge_power_on(struct drm_bridge *bridge)
 	int ret;
 
 	DBG("id=%d", id);
+	dev_info(&msm_dsi->pdev->dev, "PORTOV_MODESET: DSI power-on start\n");
 
 	ret = dsi_mgr_phy_enable(id, phy_shared_timings);
 	if (ret)
 		goto phy_en_fail;
+	dev_info(&msm_dsi->pdev->dev, "PORTOV_MODESET: DSI PHY enabled\n");
 
 	ret = msm_dsi_host_power_on(host, &phy_shared_timings[id], is_bonded_dsi, msm_dsi->phy);
 	if (ret) {
 		pr_err("%s: power on host %d failed, %d\n", __func__, id, ret);
 		goto host_on_fail;
 	}
+	dev_info(&msm_dsi->pdev->dev, "PORTOV_MODESET: DSI host powered\n");
 
 	if (is_bonded_dsi && msm_dsi1) {
 		ret = msm_dsi_host_power_on(msm_dsi1->host,
@@ -286,6 +293,7 @@ static void dsi_mgr_bridge_pre_enable(struct drm_bridge *bridge,
 	int ret;
 
 	DBG("id=%d", id);
+	dev_info(&msm_dsi->pdev->dev, "PORTOV_MODESET: DSI pre-enable start\n");
 
 	/* Do nothing with the host if it is slave-DSI in case of bonded DSI */
 	if (is_bonded_dsi && !IS_MASTER_DSI_LINK(id))
@@ -296,12 +304,14 @@ static void dsi_mgr_bridge_pre_enable(struct drm_bridge *bridge,
 		dev_err(&msm_dsi->pdev->dev, "Power on failed: %d\n", ret);
 		return;
 	}
+	dev_info(&msm_dsi->pdev->dev, "PORTOV_MODESET: DSI power on complete\n");
 
 	ret = msm_dsi_host_enable(host);
 	if (ret) {
 		pr_err("%s: enable host %d failed, %d\n", __func__, id, ret);
 		goto host_en_fail;
 	}
+	dev_info(&msm_dsi->pdev->dev, "PORTOV_MODESET: DSI host enabled\n");
 
 	if (is_bonded_dsi && msm_dsi1) {
 		ret = msm_dsi_host_enable(msm_dsi1->host);

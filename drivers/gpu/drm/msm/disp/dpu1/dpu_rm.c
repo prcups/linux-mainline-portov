@@ -45,6 +45,8 @@ int dpu_rm_init(struct drm_device *dev,
 {
 	int rc, i;
 
+	pr_info("PORTOV_RM: init start\n");
+
 	if (!rm || !cat || !mmio) {
 		DPU_ERROR("invalid kms\n");
 		return -EINVAL;
@@ -54,6 +56,7 @@ int dpu_rm_init(struct drm_device *dev,
 	memset(rm, 0, sizeof(*rm));
 
 	rm->has_legacy_ctls = (cat->mdss_ver->core_major_ver < 5);
+	pr_info("PORTOV_RM: tracking list initialized\n");
 
 	/* Interrogate HW catalog and create tracking items for hw blocks */
 	for (i = 0; i < cat->mixer_count; i++) {
@@ -68,6 +71,7 @@ int dpu_rm_init(struct drm_device *dev,
 		}
 		rm->mixer_blks[lm->id - LM_0] = &hw->base;
 	}
+	pr_info("PORTOV_RM: mixers ready\n");
 
 	for (i = 0; i < cat->merge_3d_count; i++) {
 		struct dpu_hw_merge_3d *hw;
@@ -82,6 +86,7 @@ int dpu_rm_init(struct drm_device *dev,
 		}
 		rm->merge_3d_blks[merge_3d->id - MERGE_3D_0] = &hw->base;
 	}
+	pr_info("PORTOV_RM: merge3d ready\n");
 
 	for (i = 0; i < cat->pingpong_count; i++) {
 		struct dpu_hw_pingpong *hw;
@@ -98,6 +103,7 @@ int dpu_rm_init(struct drm_device *dev,
 			hw->merge_3d = to_dpu_hw_merge_3d(rm->merge_3d_blks[pp->merge_3d - MERGE_3D_0]);
 		rm->pingpong_blks[pp->id - PINGPONG_0] = &hw->base;
 	}
+	pr_info("PORTOV_RM: pingpong ready\n");
 
 	for (i = 0; i < cat->intf_count; i++) {
 		struct dpu_hw_intf *hw;
@@ -111,6 +117,7 @@ int dpu_rm_init(struct drm_device *dev,
 		}
 		rm->hw_intf[intf->id - INTF_0] = hw;
 	}
+	pr_info("PORTOV_RM: interfaces ready\n");
 
 	for (i = 0; i < cat->wb_count; i++) {
 		struct dpu_hw_wb *hw;
@@ -124,6 +131,7 @@ int dpu_rm_init(struct drm_device *dev,
 		}
 		rm->hw_wb[wb->id - WB_0] = hw;
 	}
+	pr_info("PORTOV_RM: writeback ready\n");
 
 	for (i = 0; i < cat->cwb_count; i++) {
 		struct dpu_hw_cwb *hw;
@@ -137,6 +145,7 @@ int dpu_rm_init(struct drm_device *dev,
 		}
 		rm->cwb_blks[cwb->id - CWB_0] = &hw->base;
 	}
+	pr_info("PORTOV_RM: CWB ready\n");
 
 	for (i = 0; i < cat->ctl_count; i++) {
 		struct dpu_hw_ctl *hw;
@@ -150,6 +159,7 @@ int dpu_rm_init(struct drm_device *dev,
 		}
 		rm->ctl_blks[ctl->id - CTL_0] = &hw->base;
 	}
+	pr_info("PORTOV_RM: CTL ready\n");
 
 	for (i = 0; i < cat->dspp_count; i++) {
 		struct dpu_hw_dspp *hw;
@@ -163,6 +173,7 @@ int dpu_rm_init(struct drm_device *dev,
 		}
 		rm->dspp_blks[dspp->id - DSPP_0] = &hw->base;
 	}
+	pr_info("PORTOV_RM: DSPP ready\n");
 
 	for (i = 0; i < cat->dsc_count; i++) {
 		struct dpu_hw_dsc *hw;
@@ -180,6 +191,7 @@ int dpu_rm_init(struct drm_device *dev,
 		}
 		rm->dsc_blks[dsc->id - DSC_0] = &hw->base;
 	}
+	pr_info("PORTOV_RM: DSC ready\n");
 
 	for (i = 0; i < cat->sspp_count; i++) {
 		struct dpu_hw_sspp *hw;
@@ -193,6 +205,7 @@ int dpu_rm_init(struct drm_device *dev,
 		}
 		rm->hw_sspp[sspp->id - SSPP_NONE] = hw;
 	}
+	pr_info("PORTOV_RM: SSPP ready\n");
 
 	if (cat->cdm) {
 		struct dpu_hw_cdm *hw;
@@ -205,6 +218,7 @@ int dpu_rm_init(struct drm_device *dev,
 		}
 		rm->cdm_blk = &hw->base;
 	}
+	pr_info("PORTOV_RM: init complete\n");
 
 	return 0;
 

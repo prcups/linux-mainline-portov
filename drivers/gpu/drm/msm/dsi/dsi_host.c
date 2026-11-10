@@ -3,10 +3,13 @@
  * Copyright (c) 2015, The Linux Foundation. All rights reserved.
  */
 
+#include <linux/atomic.h>
 #include <linux/clk.h>
+#include <linux/clk-provider.h>
 #include <linux/delay.h>
 #include <linux/dma-mapping.h>
 #include <linux/err.h>
+#include <linux/export.h>
 #include <linux/interrupt.h>
 #include <linux/mfd/syscon.h>
 #include <linux/of.h>
@@ -24,6 +27,7 @@
 #include <drm/drm_of.h>
 
 #include "dsi.h"
+#include "dsi_portov_diag.h"
 #include "dsi.xml.h"
 #include "sfpb.xml.h"
 #include "dsi_cfg.h"
@@ -183,6 +187,17 @@ struct msm_dsi_host {
 
 	u32 dma_cmd_ctrl_restore;
 
+	bool portov_diag;
+	bool portov_video_deferred;
+	atomic_t portov_irq_count;
+	atomic_t portov_dma_done;
+	atomic_t portov_isr_seen;
+	u32 portov_last_isr;
+	bool portov_error_captured;
+	bool portov_error_reported;
+	u32 portov_first_error[5];
+	u32 portov_first_error_after[3];
+
 	bool registered;
 	bool power_on;
 	bool enabled;
@@ -197,6 +212,84 @@ static inline u32 dsi_read(struct msm_dsi_host *msm_host, u32 reg)
 static inline void dsi_write(struct msm_dsi_host *msm_host, u32 reg, u32 data)
 {
 	writel(data, msm_host->ctrl_base + reg);
+}
+
+static unsigned int portov_dsi_hold;
+module_param(portov_dsi_hold, uint, 0644);
+MODULE_PARM_DESC(portov_dsi_hold, "SM7435 DSI checkpoint (1..4, 0 disables)");
+static unsigned int portov_dsi_stage;
+module_param(portov_dsi_stage, uint, 0444);
+static bool portov_dsi_mapping;
+module_param(portov_dsi_mapping, bool, 0644);
+MODULE_PARM_DESC(portov_dsi_mapping, "Sample portov DSI software IOVA mapping");
+
+static bool portov_dsi_verbose;
+module_param(portov_dsi_verbose, bool, 0644);
+
+static bool portov_defer_video;
+module_param(portov_defer_video, bool, 0644);
+MODULE_PARM_DESC(portov_defer_video, "Defer portov video until panel initialization succeeds");
+
+static bool portov_panel_snapshot;
+module_param(portov_panel_snapshot, bool, 0644);
+MODULE_PARM_DESC(portov_panel_snapshot, "Sample powered portov DSI host at panel reset markers");
+
+static void portov_dsi_clock_path(struct msm_dsi_host *host,
+				 const char *label, struct clk *clk)
+{
+	unsigned int depth;
+
+	if (!READ_ONCE(portov_dsi_verbose))
+		return;
+
+	for (depth = 0; depth < 6 && !IS_ERR_OR_NULL(clk); depth++) {
+		dev_info(&host->pdev->dev,
+			 "PORTOV_DSI_PARENT: %s depth=%u name=%s ccf_rate=%lu\n",
+			 label, depth, __clk_get_name(clk), clk_get_rate(clk));
+		clk = clk_get_parent(clk);
+	}
+}
+
+static void portov_dsi_snapshot(struct msm_dsi_host *host, const char *where)
+{
+	if (!host->portov_diag)
+		return;
+
+	dev_info(&host->pdev->dev,
+		 "PORTOV_DSI_REGS: %s ctrl=%08x status=%08x fifo=%08x intr=%08x clk=%08x\n",
+		 where, dsi_read(host, REG_DSI_CTRL),
+		 dsi_read(host, REG_DSI_STATUS0), dsi_read(host, REG_DSI_FIFO_STATUS),
+		 dsi_read(host, REG_DSI_INTR_CTRL), dsi_read(host, REG_DSI_CLK_STATUS));
+	dev_info(&host->pdev->dev,
+		 "PORTOV_DSI_DMA: %s base=%08x len=%u dma_ctrl=%08x trig_ctrl=%08x timeout=%08x\n",
+		 where, dsi_read(host, REG_DSI_DMA_BASE), dsi_read(host, REG_DSI_DMA_LEN),
+		 dsi_read(host, REG_DSI_CMD_DMA_CTRL), dsi_read(host, REG_DSI_TRIG_CTRL),
+		 dsi_read(host, REG_DSI_TIMEOUT_STATUS));
+	dev_info(&host->pdev->dev,
+		 "PORTOV_DSI_IRQ: %s irq=%d count=%d dma_done=%d seen=%08x last=%08x\n",
+		 where, host->irq, atomic_read(&host->portov_irq_count),
+		 atomic_read(&host->portov_dma_done), atomic_read(&host->portov_isr_seen),
+		 READ_ONCE(host->portov_last_isr));
+}
+
+static void portov_dsi_checkpoint(struct msm_dsi_host *host, unsigned int stage)
+{
+	if (!host->portov_diag)
+		return;
+
+	WRITE_ONCE(portov_dsi_stage, stage);
+	if (READ_ONCE(portov_dsi_hold) != stage)
+		return;
+	if (stage > 1)
+		portov_dsi_snapshot(host, "checkpoint");
+	portov_dsi_clock_path(host, "pixel", host->pixel_clk);
+	portov_dsi_clock_path(host, "byte", host->byte_clk);
+	portov_dsi_clock_path(host, "esc", host->esc_clk);
+	dev_info(&host->pdev->dev, "PORTOV_DSI_CHECKPOINT: stage=%u hold=%u enter\n",
+		 stage, READ_ONCE(portov_dsi_hold));
+	while (READ_ONCE(portov_dsi_hold) == stage)
+		msleep(100);
+	dev_info(&host->pdev->dev, "PORTOV_DSI_CHECKPOINT: stage=%u released\n", stage);
 }
 
 static const struct msm_dsi_cfg_handler *
@@ -407,6 +500,15 @@ int dsi_link_clk_set_rate_6g(struct msm_dsi_host *msm_host)
 	}
 
 	ret = clk_set_rate(msm_host->pixel_clk, msm_host->pixel_clk_rate);
+	dev_info(&msm_host->pdev->dev,
+		 "PORTOV_DSI_CLK: pclk requested=%lu branch=%lu src=%lu pll=%lu byte=%lu\n",
+		 msm_host->pixel_clk_rate,
+		 clk_get_rate(msm_host->pixel_clk),
+		 clk_get_rate(msm_host->pixel_src_clk),
+		 clk_get_rate(msm_host->dsi_pll_pixel_clk),
+		 clk_get_rate(msm_host->byte_clk));
+	if (msm_host->portov_diag)
+		portov_dsi_clock_path(msm_host, "pixel-after-rate", msm_host->pixel_clk);
 	if (ret) {
 		pr_err("%s: Failed to set rate pixel clk, %d\n", __func__, ret);
 		return ret;
@@ -1132,7 +1234,9 @@ static void dsi_sw_reset(struct msm_dsi_host *msm_host)
 {
 	u32 ctrl;
 
+	dev_info(&msm_host->pdev->dev, "PORTOV_DSI: sw-reset ctrl read start\n");
 	ctrl = dsi_read(msm_host, REG_DSI_CTRL);
+	dev_info(&msm_host->pdev->dev, "PORTOV_DSI: sw-reset ctrl read done\n");
 
 	if (ctrl & DSI_CTRL_ENABLE) {
 		dsi_write(msm_host, REG_DSI_CTRL, ctrl & ~DSI_CTRL_ENABLE);
@@ -1144,12 +1248,15 @@ static void dsi_sw_reset(struct msm_dsi_host *msm_host)
 	}
 
 	dsi_write(msm_host, REG_DSI_CLK_CTRL, DSI_CLK_CTRL_ENABLE_CLKS);
+	dev_info(&msm_host->pdev->dev, "PORTOV_DSI: sw-reset clocks enabled\n");
 	wmb(); /* clocks need to be enabled before reset */
 
 	/* dsi controller can only be reset while clocks are running */
 	dsi_write(msm_host, REG_DSI_RESET, 1);
+	dev_info(&msm_host->pdev->dev, "PORTOV_DSI: sw-reset asserted\n");
 	msleep(DSI_RESET_TOGGLE_DELAY_MS); /* make sure reset happen */
 	dsi_write(msm_host, REG_DSI_RESET, 0);
+	dev_info(&msm_host->pdev->dev, "PORTOV_DSI: sw-reset deasserted\n");
 	wmb(); /* controller out of reset */
 
 	if (ctrl & DSI_CTRL_ENABLE) {
@@ -1439,7 +1546,35 @@ int dsi_dma_base_get_v2(struct msm_dsi_host *msm_host, uint64_t *dma_base)
 	return 0;
 }
 
-static int dsi_cmd_dma_tx(struct msm_dsi_host *msm_host, int len)
+/* The command BO is pinned by dma_base_get for the duration of this sample. */
+static void portov_dsi_mapping_sample(struct msm_dsi_host *host,
+				      const char *where, u64 iova)
+{
+	struct msm_gem_vm *vm;
+	struct msm_gem_object *bo;
+	phys_addr_t actual, expected;
+
+	if (!host->portov_diag || !READ_ONCE(portov_dsi_mapping) ||
+	    !host->tx_gem_obj || !host->vm)
+		return;
+
+	vm = to_msm_vm(host->vm);
+	bo = to_msm_bo(host->tx_gem_obj);
+	if (!bo->pages || !bo->pages[0])
+		return;
+
+	mutex_lock(&vm->mmu_lock);
+	actual = msm_iommu_diag_iova_to_phys(vm->mmu, iova);
+	expected = page_to_phys(bo->pages[0]);
+	mutex_unlock(&vm->mmu_lock);
+	dev_info(&host->pdev->dev,
+		 "PORTOV_DSI_MAPPING: %s iova=%#llx actual=%pa expected=%pa match=%u\n",
+		 where, (unsigned long long)iova, &actual, &expected,
+		 actual && actual == expected);
+}
+
+static int dsi_cmd_dma_tx(struct msm_dsi_host *msm_host, int len,
+			  bool wait_for_video)
 {
 	const struct msm_dsi_cfg_handler *cfg_hnd = msm_host->cfg_hnd;
 	int ret;
@@ -1454,8 +1589,22 @@ static int dsi_cmd_dma_tx(struct msm_dsi_host *msm_host, int len)
 
 	reinit_completion(&msm_host->dma_comp);
 
-	dsi_wait4video_eng_busy(msm_host);
+	/*
+	 * Low-power commands are sent outside the video stream (and can be
+	 * required before the first frame reaches the DSI controller). Waiting
+	 * for VIDEO_DONE in that state deadlocks the first panel initialization.
+	 */
+	if (wait_for_video)
+		dsi_wait4video_eng_busy(msm_host);
 
+	if (msm_host->portov_diag) {
+		dev_info(&msm_host->pdev->dev,
+			 "PORTOV_DSI_SUBMIT: iova=%#llx len=%d wait_video=%u\n",
+			 (unsigned long long)dma_base, len, wait_for_video);
+		portov_dsi_snapshot(msm_host, "before-trigger");
+		portov_dsi_checkpoint(msm_host, 3);
+	}
+	portov_dsi_mapping_sample(msm_host, "before-trigger", dma_base);
 	triggered = msm_dsi_manager_cmd_xfer_trigger(
 						msm_host->id, dma_base, len);
 	if (triggered) {
@@ -1470,6 +1619,13 @@ static int dsi_cmd_dma_tx(struct msm_dsi_host *msm_host, int len)
 		ret = len;
 	}
 
+	if (msm_host->portov_diag) {
+		dev_info(&msm_host->pdev->dev,
+			 "PORTOV_DSI_SUBMIT: triggered=%u result=%d\n", triggered, ret);
+		portov_dsi_snapshot(msm_host, "after-wait");
+		portov_dsi_mapping_sample(msm_host, "after-wait", dma_base);
+		portov_dsi_checkpoint(msm_host, 4);
+	}
 	return ret;
 }
 
@@ -1552,7 +1708,8 @@ static int dsi_cmds2buf_tx(struct msm_dsi_host *msm_host,
 		return -EINVAL;
 	}
 
-	ret = dsi_cmd_dma_tx(msm_host, len);
+	ret = dsi_cmd_dma_tx(msm_host, len,
+			     !(msg->flags & MIPI_DSI_MSG_USE_LPM));
 	if (ret < 0) {
 		pr_err("%s: cmd dma tx failed, type=0x%x, data0=0x%x, len=%d, ret=%d\n",
 			__func__, msg->type, (*(u8 *)(msg->tx_buf)), len, ret);
@@ -1572,6 +1729,19 @@ static void dsi_err_worker(struct work_struct *work)
 		container_of(work, struct msm_dsi_host, err_work);
 	u32 status = msm_host->err_work_state;
 
+	if (msm_host->portov_diag && !msm_host->portov_error_reported &&
+	    READ_ONCE(msm_host->portov_error_captured)) {
+		msm_host->portov_error_reported = true;
+		dev_info(&msm_host->pdev->dev,
+			 "PORTOV_FIRST_ERROR: fifo=%08x->%08x ack=%08x->%08x timeout=%08x->%08x\n",
+			 msm_host->portov_first_error[0], msm_host->portov_first_error_after[0],
+			 msm_host->portov_first_error[1], msm_host->portov_first_error_after[1],
+			 msm_host->portov_first_error[2], msm_host->portov_first_error_after[2]);
+		dev_info(&msm_host->pdev->dev,
+			 "PORTOV_FIRST_ERROR: status=%08x clk=%08x irq_count=%d\n",
+			 msm_host->portov_first_error[3], msm_host->portov_first_error[4],
+			 atomic_read(&msm_host->portov_irq_count));
+	}
 	pr_err_ratelimited("%s: status=%x\n", __func__, status);
 	if (status & DSI_ERR_STATE_MDP_FIFO_UNDERFLOW)
 		dsi_sw_reset(msm_host);
@@ -1668,8 +1838,19 @@ static void dsi_clk_status(struct msm_dsi_host *msm_host)
 
 static void dsi_error(struct msm_dsi_host *msm_host)
 {
+	bool capture = msm_host->portov_diag &&
+		       !READ_ONCE(msm_host->portov_error_captured);
+
 	/* disable dsi error interrupt */
 	dsi_intr_ctrl(msm_host, DSI_IRQ_MASK_ERROR, 0);
+
+	if (capture) {
+		msm_host->portov_first_error[0] = dsi_read(msm_host, REG_DSI_FIFO_STATUS);
+		msm_host->portov_first_error[1] = dsi_read(msm_host, REG_DSI_ACK_ERR_STATUS);
+		msm_host->portov_first_error[2] = dsi_read(msm_host, REG_DSI_TIMEOUT_STATUS);
+		msm_host->portov_first_error[3] = dsi_read(msm_host, REG_DSI_STATUS0);
+		msm_host->portov_first_error[4] = dsi_read(msm_host, REG_DSI_CLK_STATUS);
+	}
 
 	dsi_clk_status(msm_host);
 	dsi_fifo_status(msm_host);
@@ -1678,6 +1859,12 @@ static void dsi_error(struct msm_dsi_host *msm_host)
 	dsi_status(msm_host);
 	dsi_dln0_phy_err(msm_host);
 
+	if (capture) {
+		msm_host->portov_first_error_after[0] = dsi_read(msm_host, REG_DSI_FIFO_STATUS);
+		msm_host->portov_first_error_after[1] = dsi_read(msm_host, REG_DSI_ACK_ERR_STATUS);
+		msm_host->portov_first_error_after[2] = dsi_read(msm_host, REG_DSI_TIMEOUT_STATUS);
+		WRITE_ONCE(msm_host->portov_error_captured, true);
+	}
 	queue_work(msm_host->workqueue, &msm_host->err_work);
 }
 
@@ -1695,6 +1882,13 @@ static irqreturn_t dsi_host_irq(int irq, void *ptr)
 	dsi_write(msm_host, REG_DSI_INTR_CTRL, isr);
 	spin_unlock_irqrestore(&msm_host->intr_lock, flags);
 
+	if (msm_host->portov_diag) {
+		atomic_inc(&msm_host->portov_irq_count);
+		atomic_or(isr, &msm_host->portov_isr_seen);
+		WRITE_ONCE(msm_host->portov_last_isr, isr);
+		if (isr & DSI_IRQ_CMD_DMA_DONE)
+			atomic_inc(&msm_host->portov_dma_done);
+	}
 	DBG("isr=0x%x, id=%d", isr, msm_host->id);
 
 	if (isr & DSI_IRQ_ERROR)
@@ -2014,6 +2208,11 @@ int msm_dsi_host_init(struct msm_dsi *msm_dsi)
 		return -ENOMEM;
 
 	msm_host->pdev = pdev;
+	msm_host->portov_diag = of_device_is_compatible(pdev->dev.of_node,
+						     "qcom,sm7435-dsi-ctrl");
+	atomic_set(&msm_host->portov_irq_count, 0);
+	atomic_set(&msm_host->portov_dma_done, 0);
+	atomic_set(&msm_host->portov_isr_seen, 0);
 	msm_dsi->host = &msm_host->base;
 
 	ret = dsi_host_parse_dt(msm_host);
@@ -2161,6 +2360,60 @@ void msm_dsi_host_unregister(struct mipi_dsi_host *host)
 		msm_host->registered = false;
 	}
 }
+
+/* Called only from panel prepare while the host runtime-PM vote is held. */
+void msm_dsi_host_portov_panel_trace(struct mipi_dsi_host *host,
+				   unsigned int stage)
+{
+	struct msm_dsi_host *msm_host;
+
+	if (!READ_ONCE(portov_panel_snapshot) || !host ||
+	    host->ops != &dsi_host_ops)
+		return;
+
+	msm_host = to_msm_dsi_host(host);
+	if (!msm_host->portov_diag)
+		return;
+
+	if (!READ_ONCE(msm_host->power_on)) {
+		dev_info(&msm_host->pdev->dev,
+			 "PORTOV_PANEL_HOST: stage=%u skipped (host off)\n", stage);
+		return;
+	}
+
+	/* Read-only registers: no IRQ acknowledge, reset or clock transitions. */
+	dev_info(&msm_host->pdev->dev,
+		 "PORTOV_PANEL_HOST: stage=%u ctrl=%08x status=%08x clock=%08x clkstat=%08x fifo=%08x intr=%08x irq=%d done=%d last=%08x\n",
+		 stage, dsi_read(msm_host, REG_DSI_CTRL),
+		 dsi_read(msm_host, REG_DSI_STATUS0),
+		 dsi_read(msm_host, REG_DSI_CLK_CTRL),
+		 dsi_read(msm_host, REG_DSI_CLK_STATUS),
+		 dsi_read(msm_host, REG_DSI_FIFO_STATUS),
+		 dsi_read(msm_host, REG_DSI_INTR_CTRL),
+		 atomic_read(&msm_host->portov_irq_count),
+		 atomic_read(&msm_host->portov_dma_done),
+		 READ_ONCE(msm_host->portov_last_isr));
+}
+EXPORT_SYMBOL_GPL(msm_dsi_host_portov_panel_trace);
+
+void msm_dsi_host_portov_panel_ready(struct mipi_dsi_host *host)
+{
+	struct msm_dsi_host *msm_host;
+
+	if (!host || host->ops != &dsi_host_ops)
+		return;
+	msm_host = to_msm_dsi_host(host);
+	if (!msm_host->portov_diag || !msm_host->portov_video_deferred ||
+	    !msm_host->power_on || !msm_host->enabled)
+		return;
+
+	dsi_op_mode_config(msm_host, true, true);
+	msm_host->portov_video_deferred = false;
+	dev_info(&msm_host->pdev->dev,
+		 "PORTOV_VIDEO: enabled after panel ready ctrl=%08x\n",
+		 dsi_read(msm_host, REG_DSI_CTRL));
+}
+EXPORT_SYMBOL_GPL(msm_dsi_host_portov_panel_ready);
 
 int msm_dsi_host_xfer_prepare(struct mipi_dsi_host *host,
 				const struct mipi_dsi_msg *msg)
@@ -2425,6 +2678,8 @@ void msm_dsi_host_enable_irq(struct mipi_dsi_host *host)
 	struct msm_dsi_host *msm_host = to_msm_dsi_host(host);
 
 	enable_irq(msm_host->irq);
+	/* Do not pause with hardware ERROR enabled but the child IRQ disabled. */
+	portov_dsi_checkpoint(msm_host, 2);
 }
 
 void msm_dsi_host_disable_irq(struct mipi_dsi_host *host)
@@ -2438,8 +2693,20 @@ int msm_dsi_host_enable(struct mipi_dsi_host *host)
 {
 	struct msm_dsi_host *msm_host = to_msm_dsi_host(host);
 
-	dsi_op_mode_config(msm_host,
-		!!(msm_host->mode_flags & MIPI_DSI_MODE_VIDEO), true);
+	if (msm_host->portov_diag && READ_ONCE(portov_defer_video) &&
+	    (msm_host->mode_flags & MIPI_DSI_MODE_VIDEO)) {
+		u32 ctrl = dsi_read(msm_host, REG_DSI_CTRL);
+
+		ctrl = (ctrl | DSI_CTRL_ENABLE) & ~DSI_CTRL_VID_MODE_EN;
+		dsi_write(msm_host, REG_DSI_CTRL, ctrl);
+		msm_host->portov_video_deferred = true;
+		dev_info(&msm_host->pdev->dev,
+			 "PORTOV_VIDEO: deferred ctrl=%08x\n", ctrl);
+	} else {
+		msm_host->portov_video_deferred = false;
+		dsi_op_mode_config(msm_host,
+			!!(msm_host->mode_flags & MIPI_DSI_MODE_VIDEO), true);
+	}
 
 	/* TODO: clock should be turned off for command mode,
 	 * and only turned on before MDP START.
@@ -2459,6 +2726,7 @@ int msm_dsi_host_disable(struct mipi_dsi_host *host)
 	struct msm_dsi_host *msm_host = to_msm_dsi_host(host);
 
 	msm_host->enabled = false;
+	msm_host->portov_video_deferred = false;
 	dsi_op_mode_config(msm_host,
 		!!(msm_host->mode_flags & MIPI_DSI_MODE_VIDEO), false);
 
@@ -2493,6 +2761,8 @@ int msm_dsi_host_power_on(struct mipi_dsi_host *host,
 	const struct msm_dsi_cfg_handler *cfg_hnd = msm_host->cfg_hnd;
 	int ret = 0;
 
+	portov_dsi_checkpoint(msm_host, 1);
+	dev_info(&msm_host->pdev->dev, "PORTOV_DSI: host power-on start\n");
 	mutex_lock(&msm_host->dev_mutex);
 	if (msm_host->power_on) {
 		DBG("dsi host already on");
@@ -2510,9 +2780,13 @@ int msm_dsi_host_power_on(struct mipi_dsi_host *host,
 			__func__, ret);
 		goto unlock_ret;
 	}
+	dev_info(&msm_host->pdev->dev, "PORTOV_DSI: regulators enabled\n");
 
 	pm_runtime_get_sync(&msm_host->pdev->dev);
+	dev_info(&msm_host->pdev->dev, "PORTOV_DSI: runtime resumed\n");
 	ret = cfg_hnd->ops->link_clk_set_rate(msm_host);
+	dev_info(&msm_host->pdev->dev, "PORTOV_DSI: link rate returned %d\n",
+		 ret);
 	if (!ret)
 		ret = cfg_hnd->ops->link_clk_enable(msm_host);
 	if (ret) {
@@ -2520,6 +2794,7 @@ int msm_dsi_host_power_on(struct mipi_dsi_host *host,
 		       __func__, ret);
 		goto fail_disable_reg;
 	}
+	dev_info(&msm_host->pdev->dev, "PORTOV_DSI: link clocks enabled\n");
 
 	ret = pinctrl_pm_select_default_state(&msm_host->pdev->dev);
 	if (ret) {
@@ -2527,10 +2802,14 @@ int msm_dsi_host_power_on(struct mipi_dsi_host *host,
 			__func__, ret);
 		goto fail_disable_clk;
 	}
+	dev_info(&msm_host->pdev->dev, "PORTOV_DSI: pinctrl default\n");
 
 	dsi_timing_setup(msm_host, is_bonded_dsi);
+	dev_info(&msm_host->pdev->dev, "PORTOV_DSI: timings configured\n");
 	dsi_sw_reset(msm_host);
+	dev_info(&msm_host->pdev->dev, "PORTOV_DSI: software reset complete\n");
 	dsi_ctrl_enable(msm_host, phy_shared_timings, phy);
+	dev_info(&msm_host->pdev->dev, "PORTOV_DSI: controller enabled\n");
 
 	msm_host->power_on = true;
 	mutex_unlock(&msm_host->dev_mutex);

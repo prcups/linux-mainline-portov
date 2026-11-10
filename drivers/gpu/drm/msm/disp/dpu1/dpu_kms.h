@@ -78,6 +78,7 @@ struct dpu_kms {
 	 * dpu_kms_global_get_state()
 	 */
 	struct drm_private_obj global_state;
+	bool global_state_initialized;
 
 	struct dpu_rm rm;
 
@@ -88,6 +89,7 @@ struct dpu_kms {
 
 	struct platform_device *pdev;
 	bool rpm_enabled;
+	bool runtime_pm_held;
 
 	struct clk_bulk_data *clocks;
 	size_t num_clocks;

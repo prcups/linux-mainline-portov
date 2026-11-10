@@ -189,6 +189,8 @@ int msm_atomic_check(struct drm_device *dev, struct drm_atomic_commit *state)
 	struct drm_crtc *crtc;
 	int i, ret = 0;
 
+	dev_info(dev->dev, "PORTOV_MODESET: MSM atomic check start\n");
+
 	/*
 	 * FIXME: stop setting allow_modeset and move this check to the DPU
 	 * driver.
@@ -207,7 +209,9 @@ int msm_atomic_check(struct drm_device *dev, struct drm_atomic_commit *state)
 	if (ret)
 		return ret;
 
-	return drm_atomic_helper_check(dev, state);
+	ret = drm_atomic_helper_check(dev, state);
+	dev_info(dev->dev, "PORTOV_MODESET: helper check returned %d\n", ret);
+	return ret;
 }
 
 void msm_atomic_commit_tail(struct drm_atomic_commit *state)
@@ -219,17 +223,21 @@ void msm_atomic_commit_tail(struct drm_atomic_commit *state)
 	unsigned crtc_mask = get_crtc_mask(state);
 	bool async = can_do_async(state, &async_crtc);
 
+	dev_info(dev->dev, "PORTOV_MODESET: MSM commit tail start\n");
 	trace_msm_atomic_commit_tail_start(async, crtc_mask);
 
 	kms->funcs->enable_commit(kms);
+	dev_info(dev->dev, "PORTOV_MODESET: commit enabled\n");
 
 	/*
 	 * Ensure any previous (potentially async) commit has
 	 * completed:
 	 */
 	lock_crtcs(kms, crtc_mask);
+	dev_info(dev->dev, "PORTOV_MODESET: CRTC locks acquired\n");
 	trace_msm_atomic_wait_flush_start(crtc_mask);
 	kms->funcs->wait_flush(kms, crtc_mask);
+	dev_info(dev->dev, "PORTOV_MODESET: previous flush waited\n");
 	trace_msm_atomic_wait_flush_finish(crtc_mask);
 
 	atomic_set(&kms->fault_snapshot_capture, 0);
@@ -240,13 +248,17 @@ void msm_atomic_commit_tail(struct drm_atomic_commit *state)
 	 */
 	if (kms->funcs->prepare_commit)
 		kms->funcs->prepare_commit(kms, state);
+	dev_info(dev->dev, "PORTOV_MODESET: commit prepared\n");
 
 	/*
 	 * Push atomic updates down to hardware:
 	 */
 	drm_atomic_helper_commit_modeset_disables(dev, state);
+	dev_info(dev->dev, "PORTOV_MODESET: modeset disables complete\n");
 	drm_atomic_helper_commit_planes(dev, state, 0);
+	dev_info(dev->dev, "PORTOV_MODESET: planes complete\n");
 	drm_atomic_helper_commit_modeset_enables(dev, state);
+	dev_info(dev->dev, "PORTOV_MODESET: modeset enables complete\n");
 
 	if (async) {
 		struct msm_pending_timer *timer =
@@ -296,21 +308,26 @@ fallback:
 	kms->pending_crtc_mask &= ~crtc_mask;
 
 	vblank_get(kms, crtc_mask);
+	dev_info(dev->dev, "PORTOV_MODESET: vblank acquired\n");
 
 	/*
 	 * Flush hardware updates:
 	 */
 	trace_msm_atomic_flush_commit(crtc_mask);
 	kms->funcs->flush_commit(kms, crtc_mask);
+	dev_info(dev->dev, "PORTOV_MODESET: flush committed\n");
 	unlock_crtcs(kms, crtc_mask);
+	dev_info(dev->dev, "PORTOV_MODESET: CRTC locks released\n");
 	/*
 	 * Wait for flush to complete:
 	 */
 	trace_msm_atomic_wait_flush_start(crtc_mask);
 	kms->funcs->wait_flush(kms, crtc_mask);
+	dev_info(dev->dev, "PORTOV_MODESET: commit flush waited\n");
 	trace_msm_atomic_wait_flush_finish(crtc_mask);
 
 	vblank_put(kms, crtc_mask);
+	dev_info(dev->dev, "PORTOV_MODESET: vblank released\n");
 
 	lock_crtcs(kms, crtc_mask);
 	kms->funcs->complete_commit(kms, crtc_mask);

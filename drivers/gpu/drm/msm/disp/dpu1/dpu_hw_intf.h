@@ -127,6 +127,11 @@ struct dpu_hw_intf {
 	struct dpu_hw_intf_ops ops;
 };
 
+/* Diagnostic handoff for SM7435; caller must hold MDSS/DPU runtime power. */
+int dpu_hw_intf_quiesce_bootloader(struct drm_device *dev,
+				 const struct dpu_intf_cfg *cfg,
+				 void __iomem *addr);
+
 struct dpu_hw_intf *dpu_hw_intf_init(struct drm_device *dev,
 				     const struct dpu_intf_cfg *cfg,
 				     void __iomem *addr,

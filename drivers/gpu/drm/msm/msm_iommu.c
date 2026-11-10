@@ -273,6 +273,15 @@ int msm_iommu_pagetable_params(struct msm_mmu *mmu,
 	return 0;
 }
 
+/* On portov, ID0.ATOSNS selects the software-only translation backend. */
+phys_addr_t msm_iommu_diag_iova_to_phys(struct msm_mmu *mmu, u64 iova)
+{
+	if (!mmu || mmu->type != MSM_MMU_IOMMU)
+		return 0;
+
+	return iommu_iova_to_phys(to_msm_iommu(mmu)->domain, iova);
+}
+
 struct iommu_domain_geometry *msm_iommu_get_geometry(struct msm_mmu *mmu)
 {
 	struct msm_iommu *iommu = to_msm_iommu(mmu);

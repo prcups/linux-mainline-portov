@@ -104,6 +104,7 @@ int msm_fbdev_driver_fbdev_probe(struct drm_fb_helper *helper,
 	DBG("create fbdev: %dx%d@%d (%dx%d)", sizes->surface_width,
 			sizes->surface_height, sizes->surface_bpp,
 			sizes->fb_width, sizes->fb_height);
+	drm_info(dev, "PORTOV_FBDEV: MSM probe start\n");
 
 	fourcc = drm_mode_legacy_fb_format(sizes->surface_bpp, sizes->surface_depth);
 	format = drm_get_format_info(dev, fourcc, DRM_FORMAT_MOD_LINEAR);
@@ -123,6 +124,7 @@ int msm_fbdev_driver_fbdev_probe(struct drm_fb_helper *helper,
 			return PTR_ERR(bo);
 		}
 	}
+	drm_info(dev, "PORTOV_FBDEV: buffer object ready\n");
 
 	msm_gem_object_set_name(bo, "stolenfb");
 
@@ -147,6 +149,7 @@ int msm_fbdev_driver_fbdev_probe(struct drm_fb_helper *helper,
 		drm_err(dev, "failed to get buffer obj iova: %d\n", ret);
 		goto err_drm_client_buffer_delete;
 	}
+	drm_info(dev, "PORTOV_FBDEV: IOVA pinned\n");
 
 	DBG("fbi=%p, dev=%p", fbi, dev);
 
@@ -164,6 +167,7 @@ int msm_fbdev_driver_fbdev_probe(struct drm_fb_helper *helper,
 		ret = PTR_ERR(fbi->screen_buffer);
 		goto err_msm_gem_unpin;
 	}
+	drm_info(dev, "PORTOV_FBDEV: MMIO framebuffer ready\n");
 	fbi->screen_size = bo->size;
 	fbi->fix.smem_start = paddr;
 	fbi->fix.smem_len = bo->size;
@@ -176,6 +180,7 @@ int msm_fbdev_driver_fbdev_probe(struct drm_fb_helper *helper,
 
 	/* The framebuffer still holds a reference on the GEM object. */
 	drm_gem_object_put(bo);
+	drm_info(dev, "PORTOV_FBDEV: MSM probe complete\n");
 
 	return 0;
 

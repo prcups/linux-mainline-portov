@@ -15,6 +15,7 @@
 #include <drm/drm_file.h>
 #include <drm/drm_ioctl.h>
 #include <drm/drm_of.h>
+#include <drm/clients/drm_client_setup.h>
 
 #include "msm_drv.h"
 #include "msm_debugfs.h"
@@ -72,6 +73,8 @@ static int msm_drm_uninit(struct device *dev, const struct component_ops *gpu_op
 	struct msm_drm_private *priv = platform_get_drvdata(pdev);
 	struct drm_device *ddev = priv->dev;
 
+	cancel_delayed_work_sync(&priv->fbdev_work);
+
 	/*
 	 * Shutdown the hw if we're far enough along where things might be on.
 	 * If we run this too early, we'll end up panicking in any variety of
@@ -103,6 +106,17 @@ static int msm_drm_uninit(struct device *dev, const struct component_ops *gpu_op
 	return 0;
 }
 
+static void msm_fbdev_client_work(struct work_struct *work)
+{
+	struct msm_drm_private *priv =
+		container_of(to_delayed_work(work), struct msm_drm_private,
+			     fbdev_work);
+
+	dev_info(priv->dev->dev, "PORTOV_FBDEV: deferred client setup start\n");
+	drm_client_setup(priv->dev, NULL);
+	dev_info(priv->dev->dev, "PORTOV_FBDEV: deferred client setup complete\n");
+}
+
 static int msm_drm_init(struct device *dev, const struct drm_driver *drv,
 			const struct component_ops *gpu_ops)
 {
@@ -120,6 +134,7 @@ static int msm_drm_init(struct device *dev, const struct drm_driver *drv,
 	}
 	ddev->dev_private = priv;
 	priv->dev = ddev;
+	INIT_DELAYED_WORK(&priv->fbdev_work, msm_fbdev_client_work);
 
 	INIT_LIST_HEAD(&priv->objects);
 	mutex_init(&priv->obj_lock);
@@ -162,21 +177,30 @@ static int msm_drm_init(struct device *dev, const struct drm_driver *drv,
 		goto err_msm_uninit;
 
 	if (priv->kms_init) {
+		dev_info(dev, "PORTOV_DRM: KMS init start\n");
 		ret = msm_drm_kms_init(dev, drv);
+		dev_info(dev, "PORTOV_DRM: KMS init returned %d\n", ret);
 		if (ret)
 			goto err_msm_uninit;
 	}
 
+	dev_info(dev, "PORTOV_DRM: registration start\n");
 	ret = drm_dev_register(ddev, 0);
+	dev_info(dev, "PORTOV_DRM: registration returned %d\n", ret);
 	if (ret)
 		goto err_msm_uninit;
+	dev_info(dev, "PORTOV_DRM: device registered\n");
 
 	ret = msm_debugfs_late_init(ddev);
 	if (ret)
 		goto err_msm_uninit;
+	dev_info(dev, "PORTOV_DRM: debugfs complete\n");
 
-	if (priv->kms_init)
+	if (priv->kms_init) {
+		dev_info(dev, "PORTOV_DRM: post-init start\n");
 		msm_drm_kms_post_init(dev);
+		dev_info(dev, "PORTOV_DRM: post-init complete\n");
+	}
 
 	return 0;
 
