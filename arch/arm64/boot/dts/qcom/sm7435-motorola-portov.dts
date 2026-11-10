@@ -7,6 +7,8 @@
 
 #include "sm7435.dtsi"
 
+#include <dt-bindings/gpio/gpio.h>
+
 / {
 	model = "Motorola moto g67 power 5G";
 	compatible = "motorola,portov", "qcom,sm7435";
@@ -61,6 +63,51 @@
 		regulator-always-on;
 	};
 
+	panel_vddio: regulator-panel-vddio {
+		compatible = "regulator-fixed";
+		regulator-name = "panel_vddio";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	panel_lab: regulator-panel-lab {
+		compatible = "regulator-fixed";
+		regulator-name = "panel_lab";
+		regulator-min-microvolt = <5500000>;
+		regulator-max-microvolt = <5500000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	panel_ibb: regulator-panel-ibb {
+		compatible = "regulator-fixed";
+		regulator-name = "panel_ibb";
+		regulator-min-microvolt = <5500000>;
+		regulator-max-microvolt = <5500000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	dsi_vdda: regulator-dsi-vdda {
+		compatible = "regulator-fixed";
+		regulator-name = "dsi_vdda";
+		regulator-min-microvolt = <1200000>;
+		regulator-max-microvolt = <1200000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
+	dsi_vdds: regulator-dsi-vdds {
+		compatible = "regulator-fixed";
+		regulator-name = "dsi_vdds";
+		regulator-min-microvolt = <900000>;
+		regulator-max-microvolt = <900000>;
+		regulator-always-on;
+		regulator-boot-on;
+	};
+
 	memory@80000000 {
 		device_type = "memory";
 		reg = <0x0 0x80000000 0x0 0x68e00000>,
@@ -74,6 +121,20 @@
 };
 
 &reserved_memory {
+	/*
+	 * Match the official portov continuous-splash carveout. Keep it in
+	 * the linear map: portovfb writes through phys_to_virt(), but these
+	 * pages must never be handed to the general-purpose allocator.
+	 */
+	splash_mem: framebuffer@b8000000 {
+		reg = <0x0 0xb8000000 0x0 0x02b00000>;
+	};
+
+	smem_mem: smem@80900000 {
+		reg = <0x0 0x80900000 0x0 0x200000>;
+		no-map;
+	};
+
 	ramoops@ae000000 {
 		compatible = "ramoops";
 		reg = <0x0 0xae000000 0x0 0x60000>;
@@ -97,5 +158,43 @@
 };
 
 &usb_1 {
+	status = "okay";
+};
+
+&dispcc {
+	status = "okay";
+};
+
+&mdss {
+	status = "okay";
+};
+
+&mdss_dsi0 {
+	vdda-supply = <&dsi_vdda>;
+	status = "okay";
+
+	panel@0 {
+		compatible = "boe,icnl9922c";
+		reg = <0>;
+		reset-gpios = <&tlmm 98 GPIO_ACTIVE_HIGH>;
+		vddio-supply = <&panel_vddio>;
+		lab-supply = <&panel_lab>;
+		ibb-supply = <&panel_ibb>;
+
+		port {
+			panel0_in: endpoint {
+				remote-endpoint = <&mdss_dsi0_out>;
+			};
+		};
+	};
+};
+
+&mdss_dsi0_out {
+	remote-endpoint = <&panel0_in>;
+	data-lanes = <0 1 2 3>;
+};
+
+&mdss_dsi0_phy {
+	vdds-supply = <&dsi_vdds>;
 	status = "okay";
 };

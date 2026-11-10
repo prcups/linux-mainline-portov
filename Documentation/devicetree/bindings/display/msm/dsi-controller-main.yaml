@@ -43,6 +43,7 @@ properties:
               - qcom,sm8250-dsi-ctrl
               - qcom,sm8350-dsi-ctrl
               - qcom,sm8450-dsi-ctrl
+              - qcom,sm7435-dsi-ctrl
               - qcom,sm8550-dsi-ctrl
               - qcom,sm8650-dsi-ctrl
               - qcom,sm8750-dsi-ctrl
@@ -362,6 +363,7 @@ allOf:
               - qcom,sm8250-dsi-ctrl
               - qcom,sm8350-dsi-ctrl
               - qcom,sm8450-dsi-ctrl
+              - qcom,sm7435-dsi-ctrl
               - qcom,sm8550-dsi-ctrl
               - qcom,sm8650-dsi-ctrl
     then:
