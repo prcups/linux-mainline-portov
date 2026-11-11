@@ -39,6 +39,36 @@
 		};
 	};
 
+	/* Bring-up: model the measured firmware-enabled rails, no PMIC writes. */
+	ufs_vdda_phy: regulator-ufs-vdda-phy {
+		compatible = "regulator-fixed";
+		regulator-name = "ufs_vdda_phy";
+		regulator-min-microvolt = <880000>;
+		regulator-max-microvolt = <880000>;
+		regulator-always-on;
+	};
+	ufs_vdda_pll: regulator-ufs-vdda-pll {
+		compatible = "regulator-fixed";
+		regulator-name = "ufs_vdda_pll";
+		regulator-min-microvolt = <1200000>;
+		regulator-max-microvolt = <1200000>;
+		regulator-always-on;
+	};
+	ufs_vccq: regulator-ufs-vccq {
+		compatible = "regulator-fixed";
+		regulator-name = "ufs_vccq";
+		regulator-min-microvolt = <1200000>;
+		regulator-max-microvolt = <1200000>;
+		regulator-always-on;
+	};
+	ufs_vccq2: regulator-ufs-vccq2 {
+		compatible = "regulator-fixed";
+		regulator-name = "ufs_vccq2";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-always-on;
+	};
+
 	usb_hs_core: regulator-usb-hs-core {
 		compatible = "regulator-fixed";
 		regulator-name = "usb_hs_core";
@@ -196,5 +226,21 @@
 
 &mdss_dsi0_phy {
 	vdds-supply = <&dsi_vdds>;
+	status = "okay";
+};
+
+&ufs_mem_hc {
+	/* VCC is a firmware-enabled switch; leave it unmanaged for bring-up. */
+	vccq-supply = <&ufs_vccq>;
+	vccq2-supply = <&ufs_vccq2>;
+	vccq-max-microamp = <1200000>;
+	vccq2-max-microamp = <750000>;
+	reset-gpios = <&tlmm 141 GPIO_ACTIVE_LOW>;
+	status = "okay";
+};
+
+&ufs_mem_phy {
+	vdda-phy-supply = <&ufs_vdda_phy>;
+	vdda-pll-supply = <&ufs_vdda_pll>;
 	status = "okay";
 };
