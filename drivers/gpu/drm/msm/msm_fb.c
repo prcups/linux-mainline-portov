@@ -89,11 +89,28 @@ int msm_framebuffer_prepare(struct drm_framebuffer *fb, bool needs_dirtyfb)
 		ret = msm_gem_get_and_pin_iova(fb->obj[i], vm, &msm_fb->iova[i]);
 		drm_dbg_state(fb->dev, "FB[%u]: iova[%d]: %08llx (%d)\n",
 			      fb->base.id, i, msm_fb->iova[i], ret);
-		if (ret)
-			return ret;
+		if (ret) {
+			drm_err_ratelimited(fb->dev,
+					    "scanout pin failed: fb=%u plane=%d size=%zu imported=%u ret=%d\n",
+					    fb->base.id, i, fb->obj[i]->size,
+					    !!fb->obj[i]->import_attach, ret);
+			msm_gem_vma_put(fb->obj[i]);
+			goto unwind;
+		}
 	}
 
 	return 0;
+
+unwind:
+	while (i--) {
+		msm_gem_unpin_iova(fb->obj[i], vm);
+		msm_gem_vma_put(fb->obj[i]);
+	}
+	memset(msm_fb->iova, 0, sizeof(msm_fb->iova));
+	atomic_dec(&msm_fb->prepare_count);
+	if (needs_dirtyfb)
+		refcount_dec(&msm_fb->dirtyfb);
+	return ret;
 }
 
 void msm_framebuffer_cleanup(struct drm_framebuffer *fb, bool needed_dirtyfb)
