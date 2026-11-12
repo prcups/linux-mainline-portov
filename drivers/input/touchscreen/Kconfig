@@ -1415,3 +1415,12 @@ config TOUCHSCREEN_HIMAX_HX83112B
 	  module will be called himax_hx83112b.
 
 endif
+
+config TOUCHSCREEN_CHIPONE_ICNL9922C
+	tristate "Chipone ICNL9922C TCS SPI touchscreen"
+	depends on SPI && GPIOLIB
+	select INPUT_MT
+	select FW_LOADER
+	help
+	  Minimal ICNL9922C input support using the running TCS firmware.
+	  No firmware update or flash programming interfaces are included.

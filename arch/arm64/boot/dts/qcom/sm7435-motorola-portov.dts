@@ -15,6 +15,7 @@
 
 	aliases {
 		serial0 = &uart3;
+		spi1 = &spi_touch;
 	};
 
 	chosen {
@@ -243,4 +244,43 @@
 	vdda-phy-supply = <&ufs_vdda_phy>;
 	vdda-pll-supply = <&ufs_vdda_pll>;
 	status = "okay";
+};
+
+&qupv3_1 {
+	status = "okay";
+};
+
+&tlmm {
+	touch_spi_pins: touch-spi-state {
+		data0 { pins = "gpio10"; function = "qup1_se3_l0"; drive-strength = <6>; bias-disable; };
+		data1 { pins = "gpio11"; function = "qup1_se3_l1"; drive-strength = <6>; bias-disable; };
+		clock { pins = "gpio12"; function = "qup1_se3_l2"; drive-strength = <6>; bias-disable; };
+		cs { pins = "gpio13"; function = "qup1_se3_l3"; drive-strength = <6>; bias-disable; };
+	};
+	touch_irq_pins: touch-irq-state {
+		pins = "gpio65";
+		function = "gpio";
+		drive-strength = <8>;
+		bias-pull-up;
+	};
+};
+
+&spi_touch {
+	pinctrl-names = "default";
+	pinctrl-0 = <&touch_spi_pins>;
+	status = "okay";
+
+	touchscreen@0 {
+		compatible = "chipone,icnl9922c";
+		firmware-name = "boe_chipone_firmware.bin";
+		reg = <0>;
+		spi-max-frequency = <6000000>;
+		interrupt-parent = <&tlmm>;
+		interrupts = <65 IRQ_TYPE_EDGE_FALLING>;
+		reset-gpios = <&tlmm 131 GPIO_ACTIVE_LOW>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&touch_irq_pins>;
+		touchscreen-size-x = <4320>;
+		touchscreen-size-y = <9600>;
+	};
 };
