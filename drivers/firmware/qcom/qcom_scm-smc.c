@@ -210,6 +210,16 @@ int __scm_smc_call(struct device *dev, const struct qcom_scm_desc *desc,
 	ret = __scm_smc_do(dev, &smc, &smc_res, atomic);
 
 	trace_scm_smc_done(ret, smc.args[0], &smc_res);
+	if (dev && desc->svc == QCOM_SCM_SVC_PIL &&
+	    desc->args[0] == 13) {
+		if (ret)
+			dev_info(dev, "PORTOV_GPU_SMC: transport=%d\n", ret);
+		else
+			dev_info(dev,
+				 "PORTOV_GPU_SMC: cmd=%u fn=%#lx conv=%u a0=%ld a1=%#lx a2=%#lx a3=%#lx\n",
+				 desc->cmd, smc.args[0], qcom_convention,
+				 (long)smc_res.a0, smc_res.a1, smc_res.a2, smc_res.a3);
+	}
 
 	if (ret)
 		return ret;

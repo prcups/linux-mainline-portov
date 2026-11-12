@@ -10,6 +10,7 @@
 #include <linux/clk.h>
 #include <linux/completion.h>
 #include <linux/cpumask.h>
+#include <linux/crc32.h>
 #include <linux/dma-mapping.h>
 #include <linux/err.h>
 #include <linux/export.h>
@@ -683,7 +684,20 @@ static int __qcom_scm_pas_init_image2(struct device *dev, u32 pas_id,
 
 	memcpy(mdata_buf, metadata, size);
 
+	if (pas_id == 13 && of_machine_is_compatible("qcom,sm7435")) {
+		dev_info(dev, "PORTOV_GPU_PAS: metadata=%pad bytes=%zu mask=%#llx\n",
+			 &mdata_phys, size, dev->coherent_dma_mask);
+		dev_info(dev, "PORTOV_GPU_PAS: source_crc=%08x dma_crc=%08x head=%16ph\n",
+			 crc32_le(~0U, metadata, size) ^ ~0U,
+			 crc32_le(~0U, mdata_buf, size) ^ ~0U, mdata_buf);
+	}
 	ret = __qcom_scm_pas_init_image(dev, pas_id, mdata_phys, &res);
+	if (pas_id == 13 && of_machine_is_compatible("qcom,sm7435")) {
+		if (ret)
+			dev_info(dev, "PORTOV_GPU_PAS: smc_error=%d\n", ret);
+		else
+			dev_info(dev, "PORTOV_GPU_PAS: secure_result=%#llx\n", res.result[0]);
+	}
 	if (ret < 0 || !ctx) {
 		dma_free_coherent(dev, size, mdata_buf, mdata_phys);
 	} else if (ctx) {
@@ -2030,6 +2044,29 @@ int qcom_scm_gpu_init_regs(u32 gpu_req)
 }
 EXPORT_SYMBOL_GPL(qcom_scm_gpu_init_regs);
 
+static int portov_gpu_caps_get(char *buf, const struct kernel_param *kp)
+{
+	bool init_regs;
+
+	if (!qcom_scm_is_available())
+		return -EPROBE_DEFER;
+	if (!of_machine_is_compatible("motorola,portov"))
+		return -ENODEV;
+
+	init_regs = __qcom_scm_is_call_available(__scm->dev,
+					       QCOM_SCM_SVC_GPU,
+					       QCOM_SCM_SVC_GPU_INIT_REGS);
+	return scnprintf(buf, PAGE_SIZE, "pas13=%u gpu_init_regs=%u convention=%u\n",
+			 qcom_scm_pas_supported(13), init_regs, __get_convention());
+}
+
+static const struct kernel_param_ops portov_gpu_caps_ops = {
+	.get = portov_gpu_caps_get,
+};
+module_param_cb(portov_gpu_caps, &portov_gpu_caps_ops, NULL, 0400);
+MODULE_PARM_DESC(portov_gpu_caps, "Read-only portov GPU secure-call capabilities");
+
+
 static int qcom_scm_map_minidump_sram(struct device *dev, void __iomem **out)
 {
 	struct device_node *np = dev->of_node;
@@ -2843,6 +2880,16 @@ static int qcom_scm_probe(struct platform_device *pdev)
 	ret = clk_set_rate(scm->core_clk, INT_MAX);
 	if (ret)
 		return ret;
+
+	/* Match the official portov SCM metadata allocation address width. */
+	if (of_machine_is_compatible("motorola,portov")) {
+		ret = dma_set_mask_and_coherent(scm->dev, DMA_BIT_MASK(64));
+		if (ret)
+			return dev_err_probe(scm->dev, ret,
+					     "Failed to set portov SCM DMA mask\n");
+		dev_info(scm->dev, "PORTOV_SCM_DMA: coherent=%#llx bus=%#llx\n",
+			 scm->dev->coherent_dma_mask, scm->dev->bus_dma_limit);
+	}
 
 	ret = of_reserved_mem_device_init(scm->dev);
 	if (ret && ret != -ENODEV)
