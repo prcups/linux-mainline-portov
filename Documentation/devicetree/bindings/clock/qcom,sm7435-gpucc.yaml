@@ -1,0 +1,63 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/clock/qcom,sm7435-gpucc.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: Qualcomm SM7435 Graphics Clock, Reset and Power Controller
+
+maintainers:
+  - SignKirigami <prcups@krgm.moe>
+
+description: |
+  The graphics controller supplies clocks and resets to the GPU complex
+  and exposes its CX and GX GDSCs.
+
+  See also: include/dt-bindings/clock/qcom,sm7435-gpucc.h
+
+allOf:
+  - $ref: qcom,gcc.yaml#
+
+properties:
+  compatible:
+    const: qcom,sm7435-gpucc
+
+  clocks:
+    items:
+      - description: Board XO source
+      - description: GPLL0 main branch source
+      - description: GPLL0 divided branch source
+      - description: GCC GPU SNoC DVM clock
+
+  clock-names:
+    items:
+      - const: bi_tcxo
+      - const: gpll0_out_main
+      - const: gpll0_out_main_div
+      - const: gcc_gpu_snoc_dvm_gfx_clk
+
+  power-domains:
+    items:
+      - description: RPMh MX voltage domain (vendor VDD_MXA_LEVEL)
+      - description: RPMh CX voltage domain
+
+  power-domain-names:
+    items:
+      - const: mx
+      - const: cx
+
+  required-opps:
+    items:
+      - description: MX performance state for the clock controller
+      - description: CX performance state for the clock controller
+
+required:
+  - compatible
+  - clocks
+  - clock-names
+  - '#power-domain-cells'
+  - power-domains
+  - power-domain-names
+  - required-opps
+
+unevaluatedProperties: false

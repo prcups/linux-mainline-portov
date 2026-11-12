@@ -1751,6 +1751,13 @@ config SM_GPUCC_4450
 	  Say Y if you want to support graphics controller devices and
 	  functionality such as 3D graphics.
 
+config SM_GPUCC_7435
+	tristate "SM7435 Graphics Clock Controller"
+	depends on ARM64 || COMPILE_TEST
+	select SM_GCC_7435
+	help
+	  Support the graphics clock controller on the Qualcomm SM7435.
+
 config SM_GPUCC_6115
 	tristate "SM6115 Graphics Clock Controller"
 	select SM_GCC_6115
