@@ -284,3 +284,75 @@
 		touchscreen-size-y = <9600>;
 	};
 };
+
+/* This unit's captured Android DT reports DDR type 7.
+ * Match its DDR7 bus-frequency votes, not the DDR8 alternatives.
+ */
+&gpu_opp_table {
+	opp-295000000 {
+		opp-peak-kBps = <2136718>;
+	};
+	opp-345000000 {
+		opp-hz = /bits/ 64 <345000000>;
+		opp-level = <RPMH_REGULATOR_LEVEL_LOW_SVS>;
+		opp-peak-kBps = <2136718>;
+	};
+};
+
+&gpu_opp_table {
+	opp-500000000 {
+		opp-hz = /bits/ 64 <500000000>;
+		opp-level = <RPMH_REGULATOR_LEVEL_SVS>;
+		opp-peak-kBps = <3972656>;
+	};
+};
+
+/* Remaining operating points used by this Android device, DDR7 votes. */
+&gpu_opp_table {
+	opp-600000000 {
+		opp-hz = /bits/ 64 <600000000>;
+		opp-level = <RPMH_REGULATOR_LEVEL_SVS_L1>;
+		opp-peak-kBps = <5285156>;
+	};
+	opp-650000000 {
+		opp-hz = /bits/ 64 <650000000>;
+		opp-level = <RPMH_REGULATOR_LEVEL_SVS_L2>;
+		opp-peak-kBps = <6074218>;
+	};
+	opp-734000000 {
+		opp-hz = /bits/ 64 <734000000>;
+		opp-level = <RPMH_REGULATOR_LEVEL_NOM>;
+		opp-peak-kBps = <6671875>;
+	};
+	opp-816000000 {
+		opp-hz = /bits/ 64 <816000000>;
+		opp-level = <RPMH_REGULATOR_LEVEL_NOM_L1>;
+		opp-peak-kBps = <8332031>;
+	};
+	opp-875000000 {
+		opp-hz = /bits/ 64 <875000000>;
+		opp-level = <RPMH_REGULATOR_LEVEL_TURBO>;
+		opp-peak-kBps = <8332031>;
+	};
+	opp-940000000 {
+		opp-hz = /bits/ 64 <940000000>;
+		opp-level = <RPMH_REGULATOR_LEVEL_TURBO_L1>;
+		opp-peak-kBps = <8332031>;
+	};
+};
+
+&gpucc {
+	status = "okay";
+};
+
+&gpu {
+	status = "okay";
+};
+
+&gmu {
+	status = "okay";
+};
+
+&adreno_smmu {
+	status = "okay";
+};

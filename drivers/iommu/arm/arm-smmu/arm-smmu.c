@@ -1169,6 +1169,11 @@ static void arm_smmu_master_install_s2crs(struct arm_smmu_master_cfg *cfg,
 		s2cr[idx].type = type;
 		s2cr[idx].privcfg = S2CR_PRIVCFG_DEFAULT;
 		s2cr[idx].cbndx = cbndx;
+		if (of_device_is_compatible(smmu->dev->of_node, "qcom,sm7435-smmu-500") &&
+		    of_device_is_compatible(smmu->dev->of_node, "qcom,adreno-smmu"))
+			dev_info(smmu->dev,
+				 "PORTOV_GPU_SMMU: idx=%d sid=%#x mask=%#x type=%u cb=%u\n",
+				 idx, smmu->smrs[idx].id, smmu->smrs[idx].mask, type, cbndx);
 		arm_smmu_write_s2cr(smmu, idx);
 	}
 }

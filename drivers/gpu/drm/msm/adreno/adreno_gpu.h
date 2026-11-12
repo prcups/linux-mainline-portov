@@ -542,6 +542,11 @@ static inline int adreno_is_a640_family(const struct adreno_gpu *gpu)
 	return gpu->info->family == ADRENO_6XX_GEN2;
 }
 
+static inline int adreno_is_a710(struct adreno_gpu *gpu)
+{
+	return gpu->info->chip_ids[0] == 0x07010000;
+}
+
 static inline int adreno_is_a730(struct adreno_gpu *gpu)
 {
 	return gpu->info->chip_ids[0] == 0x07030001;

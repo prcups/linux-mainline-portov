@@ -11,10 +11,24 @@
 
 #include <linux/bitfield.h>
 #include <linux/devfreq.h>
+#include <linux/firmware/qcom/qcom_pas.h>
 #include <linux/pm_domain.h>
 #include <linux/soc/qcom/llcc-qcom.h>
 
 #define GPU_PAS_ID 13
+
+static bool portov_boot_low;
+module_param(portov_boot_low, bool, 0400);
+MODULE_PARM_DESC(portov_boot_low, "Start portov frequency batch tests at minimum OPP");
+
+static bool portov_early_zap;
+module_param(portov_early_zap, bool, 0644);
+MODULE_PARM_DESC(portov_early_zap, "Authenticate portov ZAP before GPU runtime resume");
+
+static bool portov_reinit_zap;
+module_param(portov_reinit_zap, bool, 0644);
+MODULE_PARM_DESC(portov_reinit_zap, "Shut down portov PAS 13 before early ZAP authentication");
+
 
 static u64 a6xx_gmu_get_timestamp(struct msm_gpu *gpu)
 {
@@ -1054,6 +1068,25 @@ static int a6xx_ucode_load(struct msm_gpu *gpu)
 	struct adreno_gpu *adreno_gpu = to_adreno_gpu(gpu);
 	struct a6xx_gpu *a6xx_gpu = to_a6xx_gpu(adreno_gpu);
 
+	if (adreno_is_a710(adreno_gpu) && READ_ONCE(portov_early_zap)) {
+		int ret;
+
+		dev_info(&gpu->pdev->dev,
+			 "PORTOV_EARLY_ZAP: before runtime resume, PAS supported=%u\n",
+			 qcom_pas_supported(GPU_PAS_ID));
+		if (READ_ONCE(portov_reinit_zap)) {
+			ret = qcom_pas_shutdown(GPU_PAS_ID);
+			dev_info(&gpu->pdev->dev,
+				 "PORTOV_EARLY_ZAP: PAS shutdown=%d\n", ret);
+			if (ret)
+				return ret;
+		}
+		ret = a6xx_zap_shader_init(gpu);
+		dev_info(&gpu->pdev->dev, "PORTOV_EARLY_ZAP: result=%d\n", ret);
+		if (ret)
+			return ret;
+	}
+
 	if (!a6xx_gpu->sqe_bo) {
 		a6xx_gpu->sqe_bo = adreno_fw_create_bo(gpu,
 			adreno_gpu->fw[ADRENO_FW_SQE], &a6xx_gpu->sqe_iova);
@@ -1249,7 +1282,7 @@ static int hw_init(struct msm_gpu *gpu)
 
 	if (adreno_is_a610_family(adreno_gpu) ||
 	    adreno_is_a640_family(adreno_gpu) ||
-	    adreno_is_a650_family(adreno_gpu)) {
+	    adreno_is_a650_family(adreno_gpu) || adreno_is_a710(adreno_gpu)) {
 		gpu_write(gpu, REG_A6XX_RBBM_GBIF_CLIENT_QOS_CNTL, 0x3);
 	} else if (adreno_is_a7xx(adreno_gpu)) {
 		gpu_write(gpu, REG_A6XX_RBBM_GBIF_CLIENT_QOS_CNTL, 0x2120212);
@@ -1280,7 +1313,7 @@ static int hw_init(struct msm_gpu *gpu)
 	      adreno_is_a702(adreno_gpu) ||
 	      adreno_is_a730(adreno_gpu))) {
 		gmem_range_min = (adreno_is_a740_family(adreno_gpu) ||
-				  adreno_is_a722(adreno_gpu)) ? SZ_16M : SZ_1M;
+				  adreno_is_a722(adreno_gpu) || adreno_is_a710(adreno_gpu)) ? SZ_16M : SZ_1M;
 
 		/* Set the GMEM VA range [0x100000:0x100000 + gpu->gmem - 1] */
 		gpu_write64(gpu, REG_A6XX_UCHE_GMEM_RANGE_MIN, gmem_range_min);
@@ -1344,7 +1377,7 @@ static int hw_init(struct msm_gpu *gpu)
 	a6xx_set_ubwc_config(gpu);
 
 	/* Enable fault detection */
-	if (adreno_is_a612(adreno_gpu) ||
+	if (adreno_is_a612(adreno_gpu) || adreno_is_a710(adreno_gpu) ||
 	    adreno_is_a722(adreno_gpu) ||
 	    adreno_is_a730(adreno_gpu) ||
 	    adreno_is_a740_family(adreno_gpu))
@@ -2788,6 +2821,25 @@ static struct msm_gpu *a6xx_gpu_init(struct drm_device *dev)
 
 	/* Set up the preemption specific bits and pieces for each ringbuffer */
 	a6xx_preempt_init(gpu);
+
+	if (adreno_is_a710(adreno_gpu) && portov_boot_low) {
+		struct a6xx_gmu *gmu = &a6xx_gpu->gmu;
+
+		if (!gpu->devfreq.devfreq || gmu->nr_gpu_freqs < 2) {
+			a6xx_destroy(gpu);
+			return ERR_PTR(-ENODEV);
+		}
+		gmu->current_perf_index = 1;
+		ret = dev_pm_qos_update_request(
+			&gpu->devfreq.devfreq->user_max_freq_req,
+			DIV_ROUND_UP(gmu->gpu_freqs[1], 1000));
+		if (ret < 0) {
+			a6xx_destroy(gpu);
+			return ERR_PTR(ret);
+		}
+		dev_info(&pdev->dev, "PORTOV_BOOT_LIMIT: max=%lu Hz\n",
+			 gmu->gpu_freqs[1]);
+	}
 
 	return gpu;
 }

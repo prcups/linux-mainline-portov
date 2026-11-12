@@ -24,6 +24,10 @@ bool disable_acd;
 MODULE_PARM_DESC(disable_acd, "Forcefully disable GPU ACD");
 module_param_unsafe(disable_acd, bool, 0400);
 
+static bool portov_hold_gpu = true;
+module_param(portov_hold_gpu, bool, 0644);
+MODULE_PARM_DESC(portov_hold_gpu, "Defer portov A710 probe for staged hardware tests");
+
 static bool skip_gpu;
 MODULE_PARM_DESC(skip_gpu, "Disable GPU driver register (0=enable GPU driver register (default), 1=skip GPU driver register");
 module_param(skip_gpu, bool, 0400);
@@ -271,6 +275,9 @@ static const struct component_ops a3xx_ops = {
 
 static int adreno_probe(struct platform_device *pdev)
 {
+	if (of_device_is_compatible(pdev->dev.of_node, "qcom,adreno-710.0") &&
+	    READ_ONCE(portov_hold_gpu))
+		return -EPROBE_DEFER;
 	if (of_device_is_compatible(pdev->dev.of_node, "amd,imageon") ||
 	    msm_gpu_no_components())
 		return msm_gpu_probe(pdev, &a3xx_ops);

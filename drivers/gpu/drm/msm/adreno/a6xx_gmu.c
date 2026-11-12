@@ -219,7 +219,11 @@ void a6xx_gmu_set_freq(struct msm_gpu *gpu, struct dev_pm_opp *opp,
 		return;
 
 	if (!gmu->legacy) {
-		a6xx_hfi_set_freq(gmu, perf_index, bw_index);
+		ret = a6xx_hfi_set_freq(gmu, perf_index, bw_index);
+		if (adreno_is_a710(adreno_gpu))
+			dev_info_ratelimited(gmu->dev,
+				"PORTOV_DVFS: requested=%lu index=%u bw_index=%u hfi_ret=%d\n",
+				gpu_freq, perf_index, bw_index, ret);
 		/* With Bandwidth voting, we now vote for all resources, so skip OPP set */
 		if (!bw_index)
 			dev_pm_opp_set_opp(&gpu->pdev->dev, opp);
@@ -2456,7 +2460,9 @@ int a6xx_gmu_init(struct a6xx_gpu *a6xx_gpu, struct device_node *node)
 	gmu->gxpd = dev_pm_domain_attach_by_name(gmu->dev, "gx");
 
 	/* Get the power levels for the GMU and GPU */
-	a6xx_gmu_pwrlevels_probe(gmu);
+ret = a6xx_gmu_pwrlevels_probe(gmu);
+	if (ret)
+		goto detach_gxpd;
 
 	ret = a6xx_gmu_acd_probe(gmu);
 	if (ret)
